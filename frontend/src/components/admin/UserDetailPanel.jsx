@@ -1,7 +1,7 @@
 import { MdClose, MdCheckCircle, MdBlock } from 'react-icons/md';
 import { C, STATUS_META, BIZ_META } from './constants.jsx';
 
-const CURRENCIES = ['PKR','USD','AED','SAR','QAR','EUR','GBP'];
+const CURRENCIES = ['PKR','USD','AED','SAR','QAR'];
 
 export default function UserDetailPanel({ selected, payments, payAmount, setPayAmount, payNote, setPayNote, payCurrency, setPayCurrency, months, setMonths, activate, suspend, recordPayment, busy, setSelected, deleteUser, confirmDelete, setConfirmDelete }) {
   return (

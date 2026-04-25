@@ -131,6 +131,13 @@ export default function Reports({ user }) {
             <GradCard label="Discounts" value={`${cur}${fmt(salesRep.summary.totalDiscount)}`} icon={MdDiscount} gradient="linear-gradient(135deg,#ef4444,#dc2626)" shadow="0 8px 24px rgba(239,68,68,0.3)" />
             <GradCard label="Tax Collected" value={`${cur}${fmt(salesRep.summary.totalTax)}`} icon={MdTrendingUp} gradient="linear-gradient(135deg,#10b981,#059669)" shadow="0 8px 24px rgba(16,185,129,0.3)" />
           </div>
+          {salesRep.summary.totalCost > 0 && (
+            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3,1fr)', gap:14, marginBottom:24 }}>
+              <GradCard label="Total Cost" value={`${cur}${fmt(salesRep.summary.totalCost)}`} icon={MdAttachMoney} gradient="linear-gradient(135deg,#64748b,#475569)" shadow="0 8px 24px rgba(100,116,139,0.3)" />
+              <GradCard label="Net Profit" value={`${cur}${fmt(salesRep.summary.totalProfit)}`} icon={MdAutoGraph} gradient={salesRep.summary.totalProfit >= 0 ? "linear-gradient(135deg,#10b981,#059669)" : "linear-gradient(135deg,#ef4444,#dc2626)"} shadow={salesRep.summary.totalProfit >= 0 ? "0 8px 24px rgba(16,185,129,0.3)" : "0 8px 24px rgba(239,68,68,0.3)"} />
+              <GradCard label="Profit Margin" value={salesRep.summary.revenue > 0 ? `${((salesRep.summary.totalProfit / salesRep.summary.revenue) * 100).toFixed(1)}%` : '—'} icon={FaFire} gradient="linear-gradient(135deg,#f59e0b,#d97706)" shadow="0 8px 24px rgba(245,158,11,0.3)" />
+            </div>
+          )}
           <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:18, marginBottom:24 }}>
             <div className="card">
               <div className="card-header"><span className="card-title" style={{ display:'flex', alignItems:'center', gap:8 }}><MdShowChart style={{ color:'var(--orange)', fontSize:18 }} />Revenue Trend</span></div>
@@ -213,7 +220,7 @@ export default function Reports({ user }) {
               const pageData = sorted.slice(dailyPage*DAILY_PAGE_SIZE,(dailyPage+1)*DAILY_PAGE_SIZE);
               return (
                 <>
-                  <div className="table-wrap"><table><thead><tr><th>Date</th><th>Sales</th><th>Revenue</th></tr></thead><tbody>{pageData.map(d=>(<tr key={d.date}><td style={{ fontWeight:600 }}>{d.date}</td><td><span className="badge badge-info">{d.sales}</span></td><td style={{ fontWeight:800, color:'var(--orange)' }}>{cur}{fmt(d.revenue)}</td></tr>))}</tbody></table></div>
+                  <div className="table-wrap"><table><thead><tr><th>Date</th><th>Sales</th><th>Revenue</th><th>Cost</th><th>Profit</th></tr></thead><tbody>{pageData.map(d=>(<tr key={d.date}><td style={{ fontWeight:600 }}>{d.date}</td><td><span className="badge badge-info">{d.sales}</span></td><td style={{ fontWeight:800, color:'var(--orange)' }}>{cur}{fmt(d.revenue)}</td><td style={{ fontWeight:600, color:'var(--gray-500)' }}>{d.cost > 0 ? `${cur}${fmt(d.cost)}` : '—'}</td><td style={{ fontWeight:800, color: d.cost > 0 ? (d.profit >= 0 ? '#10b981' : '#ef4444') : 'var(--gray-400)' }}>{d.cost > 0 ? `${cur}${fmt(d.profit)}` : '—'}</td></tr>))}</tbody></table></div>
                   <Pagination page={dailyPage} setPage={setDailyPage} total={sorted.length} pageSize={DAILY_PAGE_SIZE} />
                 </>
               );

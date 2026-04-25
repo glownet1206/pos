@@ -4,6 +4,8 @@ import { MdAdd, MdEdit, MdDelete, MdSearch, MdChevronLeft, MdChevronRight, MdQrC
 import toast from 'react-hot-toast';
 import { getConfig } from '../businessConfig';
 import BarcodeDisplay from '../components/BarcodeDisplay';
+import CarTypeSelect from '../components/CarTypeSelect';
+import CustomSelect from '../components/CustomSelect';
 
 const PAGE_SIZE = 7;
 
@@ -14,6 +16,12 @@ export default function Inventory({ user }) {
 
   const [items, setItems] = useState([]);
   const [currency, setCurrency] = useState(() => localStorage.getItem('inv_currency') || 'PKR');
+
+  useEffect(() => {
+    const h = () => setCurrency(localStorage.getItem('inv_currency') || 'PKR');
+    window.addEventListener('storage', h);
+    return () => window.removeEventListener('storage', h);
+  }, []);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -128,6 +136,9 @@ export default function Inventory({ user }) {
                       <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>{cfg.itemSubtitle(item)}</div>
                       <div style={{ marginTop: 4, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 800, color: themeColor, fontSize: 14 }}>{currency}{Number(item.price).toFixed(2)}</span>
+                        {(item.cost_price || item.cost) > 0 && (
+                          <span style={{ fontSize: 11, color: 'var(--gray-400)', fontWeight: 600 }}>Cost: {currency}{Number(item.cost_price || item.cost).toFixed(2)}</span>
+                        )}
                         <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>Qty: {item.stock}</span>
                         {stockBadge(item)}
                         {expiryBadge(item)}
@@ -147,7 +158,8 @@ export default function Inventory({ user }) {
                     <tr>
                       <th>{cfg.itemLabel}</th>
                       <th>Category / Type</th>
-                      <th>Price</th>
+                      <th>Sale Price</th>
+                      <th>Cost Price</th>
                       <th>Stock</th>
                       <th>Barcode</th>
                       <th>Status</th>
@@ -172,6 +184,9 @@ export default function Inventory({ user }) {
                           {item.category || item.type || '—'}
                         </td>
                         <td style={{ fontWeight: 800, color: themeColor }}>{currency} {Number(item.price).toFixed(2)}</td>
+                        <td style={{ color: 'var(--gray-500)', fontSize: 13 }}>
+                          {(item.cost_price || item.cost) ? `${currency} ${Number(item.cost_price || item.cost).toFixed(2)}` : '—'}
+                        </td>
                         <td style={{ fontWeight: 700 }}>{item.stock}</td>
                         <td>
                           {item.barcode ? (
@@ -277,10 +292,10 @@ export default function Inventory({ user }) {
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body">
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px', background:'#fff7ed', borderRadius:6, border:'1px solid #fed7aa' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, padding:'8px 12px', background:'#fff7ed', borderRadius:6, border:'1px solid #fed7aa', flexWrap:'wrap' }}>
                   <span style={{ fontSize:12, fontWeight:700, color:'#f97316' }}>Currency:</span>
-                  {['PKR','USD','AED','SAR','QAR','EUR','GBP'].map(c => (
-                    <button key={c} type="button" onClick={() => { setCurrency(c); localStorage.setItem('inv_currency', c); }}
+                  {['PKR','USD','AED','SAR','QAR'].map(c => (
+                    <button key={c} type="button" onClick={() => { setCurrency(c); localStorage.setItem('inv_currency', c); window.dispatchEvent(new Event('storage')); }}
                       style={{ padding:'3px 10px', borderRadius:4, border:`1px solid ${currency===c?'#f97316':'#e8ecf0'}`, background:currency===c?'#f97316':'white', color:currency===c?'white':'#374151', fontSize:11.5, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
                       {c}
                     </button>
@@ -289,13 +304,24 @@ export default function Inventory({ user }) {
                 <div className="grid-2">
                   {cfg.itemFields.map(field => (
                     <div key={field.key} className="form-group" style={field.fullWidth ? { gridColumn: '1/-1' } : {}}>
-                      <label className="form-label">{field.key==='price'?`Price (${currency})`:field.key==='cost'?`Cost (${currency})`:field.label}{field.required ? ' *' : ''}</label>
+                      <label className="form-label">
+                        {field.isCurrency ? `${field.label} (${currency})` : field.label}
+                        {field.required ? ' *' : ''}
+                      </label>
                       {field.type === 'select' ? (
-                        <select className="form-control" value={form[field.key] ?? ''} onChange={e => setForm(f => ({ ...f, [field.key]: e.target.value }))}>
-                          {field.options.map((opt, i) => (
-                            <option key={opt} value={opt}>{field.optionLabels ? field.optionLabels[i] : opt}</option>
-                          ))}
-                        </select>
+                        <CustomSelect
+                          value={form[field.key] ?? ''}
+                          onChange={val => setForm(f => ({ ...f, [field.key]: val }))}
+                          options={field.options}
+                          placeholder={field.options[0] || 'Select...'}
+                        />
+                      ) : field.type === 'datalist' ? (
+                        <CarTypeSelect
+                          value={form[field.key] ?? ''}
+                          onChange={val => setForm(f => ({ ...f, [field.key]: val }))}
+                          suggestions={field.suggestions}
+                          placeholder={field.placeholder || 'Select...'}
+                        />
                       ) : (
                         <input
                           type={field.type}
@@ -304,7 +330,7 @@ export default function Inventory({ user }) {
                           placeholder={field.placeholder || ''}
                           value={form[field.key] ?? ''}
                           min={field.type === 'number' ? 0 : undefined}
-                          step={field.key === 'price' || field.key === 'cost' ? '0.01' : undefined}
+                          step={field.isCurrency ? '0.01' : undefined}
                           onChange={e => setForm(f => ({ ...f, [field.key]: e.target.value }))}
                         />
                       )}

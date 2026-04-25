@@ -4,17 +4,25 @@ import { MdAdd, MdEdit, MdDelete, MdSearch, MdChevronLeft, MdChevronRight, MdQrC
 import { GiGearStickPattern } from 'react-icons/gi';
 import toast from 'react-hot-toast';
 import BarcodeDisplay from '../components/BarcodeDisplay';
+import CarTypeSelect from '../components/CarTypeSelect';
+import CustomSelect from '../components/CustomSelect';
 
 const PAGE_SIZE = 7;
 const CATEGORIES = ['All', 'Engine', 'Brakes', 'Suspension', 'Electrical', 'Body', 'Filters', 'Belts', 'Bearings', 'General'];
 const fmt = n => Number(n || 0).toFixed(2);
-const getCurrency = () => localStorage.getItem('inv_currency') || 'Rs.';
+const getCurrency = () => localStorage.getItem('inv_currency') || 'PKR';
 
-const emptyForm = { name:'', category:'General', brand:'', price:'', stock:'', low_stock_threshold:5, barcode:'' };
+const emptyForm = { name:'', category:'General', brand:'', price:'', cost_price:'', car_type:'', stock:'', low_stock_threshold:5, barcode:'' };
 
 export default function SpareParts({ user }) {
   const themeColor = '#f97316';
-  const [currency] = useState(getCurrency);
+  const [currency, setCurrency] = useState(getCurrency);
+
+  useEffect(() => {
+    const h = () => setCurrency(localStorage.getItem('inv_currency') || 'PKR');
+    window.addEventListener('storage', h);
+    return () => window.removeEventListener('storage', h);
+  }, []);
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
@@ -98,8 +106,12 @@ export default function SpareParts({ user }) {
                       <div>
                         <div style={{ fontWeight:700, fontSize:14 }}>{item.name}</div>
                         <div style={{ fontSize:12, color:'var(--gray-400)' }}>{item.brand} · {item.category}</div>
+                        {item.car_type && <div style={{ fontSize:11, color:'var(--gray-400)', marginTop:2 }}>🚗 {item.car_type}</div>}
                       </div>
-                      <div style={{ fontWeight:800, color:themeColor, fontSize:14 }}>{currency}{fmt(item.price)}</div>
+                      <div style={{ textAlign:'right' }}>
+                        <div style={{ fontWeight:800, color:themeColor, fontSize:14 }}>{currency}{fmt(item.price)}</div>
+                        {item.cost_price > 0 && <div style={{ fontSize:11, color:'var(--gray-400)' }}>Cost: {currency}{fmt(item.cost_price)}</div>}
+                      </div>
                     </div>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                       <span style={{ fontSize:12, color: item.stock <= item.low_stock_threshold ? 'var(--red)' : 'var(--gray-400)' }}>Stock: {item.stock}</span>
@@ -116,7 +128,7 @@ export default function SpareParts({ user }) {
             ) : (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>#</th><th>Name</th><th>Brand</th><th>Category</th><th>Price</th><th>Stock</th><th>Barcode</th><th></th></tr></thead>
+                  <thead><tr><th>#</th><th>Name</th><th>Brand</th><th>Category</th><th>Sale Price</th><th>Cost Price</th><th>Car Type</th><th>Stock</th><th>Barcode</th><th></th></tr></thead>
                   <tbody>
                     {pageData.map((item, i) => (
                       <tr key={item.id}>
@@ -125,6 +137,8 @@ export default function SpareParts({ user }) {
                         <td style={{ color:'var(--gray-500)' }}>{item.brand || '—'}</td>
                         <td><span className="badge badge-info">{item.category}</span></td>
                         <td style={{ fontWeight:700, color:themeColor }}>{currency}{fmt(item.price)}</td>
+                        <td style={{ color:'var(--gray-500)', fontSize:12 }}>{item.cost_price ? `${currency}${fmt(item.cost_price)}` : '—'}</td>
+                        <td style={{ color:'var(--gray-500)', fontSize:12 }}>{item.car_type || '—'}</td>
                         <td>
                           <span style={{ color: item.stock <= item.low_stock_threshold ? 'var(--red)' : 'var(--gray-700)', fontWeight:600 }}>
                             {item.stock}
@@ -141,7 +155,7 @@ export default function SpareParts({ user }) {
                         </td>
                       </tr>
                     ))}
-                    {pageData.length === 0 && <tr><td colSpan={8} style={{ textAlign:'center', color:'var(--gray-400)', padding:32 }}>No spare parts found</td></tr>}
+                    {pageData.length === 0 && <tr><td colSpan={10} style={{ textAlign:'center', color:'var(--gray-400)', padding:32 }}>No spare parts found</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -169,10 +183,20 @@ export default function SpareParts({ user }) {
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                <div style={{ gridColumn:'1/-1', display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#fff7ed', borderRadius:6, border:'1px solid #fed7aa', flexWrap:'wrap' }}>
+                  <span style={{ fontSize:12, fontWeight:700, color:'#f97316' }}>Currency:</span>
+                  {['PKR','USD','AED','SAR','QAR'].map(c => (
+                    <button key={c} type="button" onClick={() => { setCurrency(c); localStorage.setItem('inv_currency', c); window.dispatchEvent(new Event('storage')); }}
+                      style={{ padding:'3px 10px', borderRadius:4, border:`1px solid ${currency===c?'#f97316':'#e8ecf0'}`, background:currency===c?'#f97316':'white', color:currency===c?'white':'#374151', fontSize:11.5, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
                 {[
                   { key:'name',      label:'Name',           type:'text',   required:true,  full:true },
                   { key:'brand',     label:'Brand',          type:'text',   required:false },
-                  { key:'price',     label:`Price (${currency})`,     type:'number', required:true },
+                  { key:'price',     label:`Sale Price (${currency})`, type:'number', required:true },
+                  { key:'cost_price',label:`Cost Price (${currency}) (Optional)`, type:'number', required:false },
                   { key:'stock',     label:'Stock Qty',       type:'number', required:false },
                   { key:'low_stock_threshold', label:'Low Stock Alert', type:'number', required:false },
                   { key:'barcode',   label:'Barcode',         type:'text',   required:false },
@@ -180,15 +204,24 @@ export default function SpareParts({ user }) {
                   <div key={f.key} style={{ gridColumn: f.full ? '1/-1' : 'auto' }}>
                     <label style={{ fontSize:12, fontWeight:600, color:'var(--gray-600)', display:'block', marginBottom:4 }}>{f.label}{f.required && ' *'}</label>
                     <input type={f.type} value={form[f.key]||''} onChange={e => setForm(p=>({...p,[f.key]:e.target.value}))} required={f.required}
+                      min={f.type==='number' ? 0 : undefined} step={f.key==='price'||f.key==='cost_price' ? '0.01' : undefined}
                       style={{ width:'100%', padding:'9px 12px', borderRadius:9, border:'1.5px solid var(--gray-200)', fontSize:13, fontFamily:'inherit', outline:'none', boxSizing:'border-box' }} />
                   </div>
                 ))}
                 <div style={{ gridColumn:'1/-1' }}>
+                  <label style={{ fontSize:12, fontWeight:600, color:'var(--gray-600)', display:'block', marginBottom:4 }}>Car Type <span style={{ fontWeight:400, color:'var(--gray-400)' }}>(Optional)</span></label>
+                  <CarTypeSelect
+                    value={form.car_type || ''}
+                    onChange={val => setForm(p => ({ ...p, car_type: val }))}
+                  />
+                </div>
+                <div style={{ gridColumn:'1/-1' }}>
                   <label style={{ fontSize:12, fontWeight:600, color:'var(--gray-600)', display:'block', marginBottom:4 }}>Category</label>
-                  <select value={form.category||'General'} onChange={e => setForm(p=>({...p,category:e.target.value}))}
-                    style={{ width:'100%', padding:'9px 12px', borderRadius:9, border:'1.5px solid var(--gray-200)', fontSize:13, fontFamily:'inherit', outline:'none' }}>
-                    {CATEGORIES.filter(c=>c!=='All').map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <CustomSelect
+                    value={form.category || 'General'}
+                    onChange={val => setForm(p => ({ ...p, category: val }))}
+                    options={CATEGORIES.filter(c => c !== 'All')}
+                  />
                 </div>
               </div>
               <div className="modal-footer">

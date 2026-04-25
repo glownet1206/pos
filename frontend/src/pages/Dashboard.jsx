@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+﻿import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { salesAPI, tyresAPI, reportsAPI, sparePartsAPI } from '../api';
 import { MdAdd, MdArrowForward, MdTrendingUp, MdTrendingDown, MdShoppingCart, MdInventory2, MdWarning, MdAttachMoney, MdShowChart, MdChevronLeft, MdChevronRight } from 'react-icons/md';
@@ -126,7 +126,7 @@ export default function Dashboard({ user }) {
                 {user?.business_name || cfg.label} · {new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}
               </span>
               <span style={{ fontSize:12, fontWeight:700, color:'var(--green)', background:'var(--green-bg)', padding:'2px 9px', borderRadius:20 }}>
-                ● Live
+                ◈ Live
               </span>
             </div>
           </div>
@@ -173,7 +173,7 @@ export default function Dashboard({ user }) {
 
 
       <div className="card mb-4" style={{ padding:'24px 28px' }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:24, flexWrap:'wrap', gap:12 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16, flexWrap:'wrap', gap:12 }}>
           <div>
             <div style={{ fontSize:16, fontWeight:800, color:'var(--gray-900)', display:'flex', alignItems:'center', gap:8 }}>
               <MdShowChart style={{ color:'var(--orange)', fontSize:20 }} /> Revenue Overview
@@ -193,6 +193,7 @@ export default function Dashboard({ user }) {
             ))}
           </div>
         </div>
+
         <ResponsiveContainer width="100%" height={240}>
           <AreaChart data={weekly} margin={{ top:4, right:4, left:-16, bottom:0 }}>
             <defs>
@@ -215,18 +216,55 @@ export default function Dashboard({ user }) {
           </AreaChart>
         </ResponsiveContainer>
 
-        <div style={{ display:'flex', gap:20, marginTop:12, justifyContent:'center' }}>
-          {[['#f97316','Revenue'],['#3b82f6','Sales Count']].map(([c,l]) => (
-            <span key={l} style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, fontWeight:600, color:'var(--gray-500)' }}>
-              <span style={{ width:24, height:3, borderRadius:2, background:c, display:'inline-block' }} />{l}
-            </span>
-          ))}
-        </div>
+        {(() => {
+          const totalRev   = weekly.reduce((s, d) => s + (d.revenue || 0), 0);
+          const totalCost  = weekly.reduce((s, d) => s + (d.cost    || 0), 0);
+          const totalProfit = totalRev - totalCost;
+          const totalSales = weekly.reduce((s, d) => s + (d.sales   || 0), 0);
+          const hasCost    = totalCost > 0;
+          const margin     = totalRev > 0 ? ((totalProfit / totalRev) * 100).toFixed(1) : null;
+          const cur        = localStorage.getItem('inv_currency') || 'Rs.';
+          const f          = n => Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+          return (
+            <div style={{ marginTop:16, paddingTop:14, borderTop:'1px solid var(--gray-100)', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
+              <div style={{ display:'flex', gap:20, flexWrap:'wrap', alignItems:'center' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                  <span style={{ width:24, height:3, borderRadius:2, background:'#f97316', display:'inline-block' }} />
+                  <span style={{ fontSize:12, fontWeight:600, color:'var(--gray-500)' }}>Revenue</span>
+                  <span style={{ fontSize:13, fontWeight:900, color:'#f97316' }}>{cur}{f(totalRev)}</span>
+                </div>
+                {hasCost && (
+                  <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                    <span style={{ width:24, height:3, borderRadius:2, background:'#ef4444', display:'inline-block' }} />
+                    <span style={{ fontSize:12, fontWeight:600, color:'var(--gray-500)' }}>Investment</span>
+                    <span style={{ fontSize:13, fontWeight:900, color:'#ef4444' }}>{cur}{f(totalCost)}</span>
+                  </div>
+                )}
+                {hasCost && (
+                  <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                    <span style={{ width:24, height:3, borderRadius:2, background:'#10b981', display:'inline-block' }} />
+                    <span style={{ fontSize:12, fontWeight:600, color:'var(--gray-500)' }}>Profit</span>
+                    <span style={{ fontSize:13, fontWeight:900, color: totalProfit >= 0 ? '#10b981' : '#ef4444' }}>{cur}{f(totalProfit)}</span>
+                  </div>
+                )}
+                <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                  <span style={{ width:24, height:3, borderRadius:2, background:'#3b82f6', display:'inline-block' }} />
+                  <span style={{ fontSize:12, fontWeight:600, color:'var(--gray-500)' }}>Sales</span>
+                  <span style={{ fontSize:13, fontWeight:900, color:'#3b82f6' }}>{totalSales}</span>
+                </div>
+              </div>
+              {hasCost && margin !== null && (
+                <div style={{ padding:'4px 14px', borderRadius:20, fontSize:12.5, fontWeight:800, background: totalProfit >= 0 ? '#f0fdf4' : '#fef2f2', color: totalProfit >= 0 ? '#059669' : '#dc2626', border: `1.5px solid ${totalProfit >= 0 ? '#bbf7d0' : '#fecaca'}` }}>
+                  {totalProfit >= 0 ? '▲' : '▼'} {margin}% margin
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
 
       <div className="dashboard-bottom" style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 2fr', gap:18, marginBottom:24 }}>
-
 
         <div className="card" style={{ display:'flex', flexDirection:'column' }}>
           <div className="card-header" style={{ marginBottom:4 }}>
@@ -307,23 +345,19 @@ export default function Dashboard({ user }) {
                   return (
                     <div key={i}>
                       <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
-
                         <div style={{ width:26, height:26, borderRadius:8, background:rankBg[i], display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                           <span style={{ fontSize:12, fontWeight:900, color:rankColors[i] }}>#{i+1}</span>
                         </div>
-
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontWeight:700, fontSize:13, color:'var(--gray-800)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                             {t.name}
                           </div>
                         </div>
-
                         <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
                           <span style={{ fontSize:12, fontWeight:700, color:'var(--gray-400)' }}>{currency}{fmt(t.revenue)}</span>
                           <span style={{ fontSize:13, fontWeight:900, color:'var(--orange)', minWidth:28, textAlign:'right' }}>{t.qty}</span>
                         </div>
                       </div>
-
                       <div style={{ height:7, borderRadius:4, background:'var(--gray-100)', overflow:'hidden', marginLeft:36 }}>
                         <div style={{
                           height:'100%', borderRadius:4,
@@ -403,10 +437,8 @@ export default function Dashboard({ user }) {
                   </div>
                 )}
 
-
                 {(() => {
                   const WINDOW = 3;
-
                   let winStart = Math.max(0, salesPage - Math.floor(WINDOW / 2));
                   let winEnd = winStart + WINDOW;
                   if (winEnd > totalPages) { winEnd = totalPages; winStart = Math.max(0, winEnd - WINDOW); }
@@ -417,13 +449,11 @@ export default function Dashboard({ user }) {
                         {salesPage * PAGE_SIZE + 1}–{Math.min((salesPage + 1) * PAGE_SIZE, sales.length)} of {sales.length}
                       </span>
                       <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-
                         <button onClick={() => setSalesPage(p => p - 1)} disabled={salesPage === 0}
                           style={{ width:32, height:32, borderRadius:9, border:'1.5px solid var(--gray-200)', background:'white', display:'flex', alignItems:'center', justifyContent:'center', cursor:salesPage===0?'not-allowed':'pointer', color:salesPage===0?'var(--gray-300)':'var(--gray-600)', fontSize:19, transition:'all 0.15s', flexShrink:0 }}
                           onMouseEnter={e => { if(salesPage!==0){ e.currentTarget.style.borderColor='var(--orange)'; e.currentTarget.style.color='var(--orange)'; }}}
                           onMouseLeave={e => { e.currentTarget.style.borderColor='var(--gray-200)'; e.currentTarget.style.color=salesPage===0?'var(--gray-300)':'var(--gray-600)'; }}
                         ><MdChevronLeft /></button>
-
 
                         {pageNums.map(i => (
                           <button key={i} onClick={() => setSalesPage(i)}
@@ -432,7 +462,6 @@ export default function Dashboard({ user }) {
                             onMouseLeave={e => { if(salesPage!==i){ e.currentTarget.style.borderColor='var(--gray-200)'; e.currentTarget.style.color='var(--gray-500)'; }}}
                           >{i + 1}</button>
                         ))}
-
 
                         <button onClick={() => setSalesPage(p => p + 1)} disabled={salesPage === totalPages - 1}
                           style={{ width:32, height:32, borderRadius:9, border:'1.5px solid var(--gray-200)', background:'white', display:'flex', alignItems:'center', justifyContent:'center', cursor:salesPage===totalPages-1?'not-allowed':'pointer', color:salesPage===totalPages-1?'var(--gray-300)':'var(--gray-600)', fontSize:19, transition:'all 0.15s', flexShrink:0 }}

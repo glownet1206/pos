@@ -86,14 +86,25 @@ const tyreShopTables = async (db) => {
   await db.runAsync(`CREATE TABLE IF NOT EXISTS tyres (
     id INTEGER PRIMARY KEY AUTOINCREMENT, brand TEXT NOT NULL, model TEXT NOT NULL,
     size TEXT NOT NULL, type TEXT DEFAULT 'Passenger', price REAL NOT NULL,
+    cost_price REAL DEFAULT 0, car_type TEXT DEFAULT '',
     stock INTEGER DEFAULT 0, low_stock_threshold INTEGER DEFAULT 10,
     barcode TEXT UNIQUE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
 
+  // Migrations for existing tyres table
+  await db.runAsync(`ALTER TABLE tyres ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
+  await db.runAsync(`ALTER TABLE tyres ADD COLUMN car_type TEXT DEFAULT ''`).catch(() => {});
+
   await db.runAsync(`CREATE TABLE IF NOT EXISTS spare_parts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT DEFAULT 'General',
-    brand TEXT, price REAL NOT NULL, stock INTEGER DEFAULT 0,
+    brand TEXT, price REAL NOT NULL, cost_price REAL DEFAULT 0,
+    car_type TEXT DEFAULT '',
+    stock INTEGER DEFAULT 0,
     low_stock_threshold INTEGER DEFAULT 5, barcode TEXT UNIQUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+
+  // Migrations for existing spare_parts table
+  await db.runAsync(`ALTER TABLE spare_parts ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
+  await db.runAsync(`ALTER TABLE spare_parts ADD COLUMN car_type TEXT DEFAULT ''`).catch(() => {});
 
   await db.runAsync(`CREATE TABLE IF NOT EXISTS sales (
     id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, customer_name TEXT,
@@ -104,8 +115,12 @@ const tyreShopTables = async (db) => {
   await db.runAsync(`CREATE TABLE IF NOT EXISTS sale_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT, sale_id INTEGER NOT NULL, tyre_id INTEGER NOT NULL,
     tyre_name TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price REAL NOT NULL,
+    cost_price REAL DEFAULT 0,
     discount REAL DEFAULT 0, total REAL NOT NULL,
     item_type TEXT DEFAULT 'tyre')`);
+
+  // Migration for existing sale_items table
+  await db.runAsync(`ALTER TABLE sale_items ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
 
   await db.runAsync(`CREATE TABLE IF NOT EXISTS suppliers (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT,
@@ -165,7 +180,10 @@ const generalStoreTables = async (db) => {
     id INTEGER PRIMARY KEY AUTOINCREMENT, sale_id INTEGER NOT NULL,
     product_id INTEGER NOT NULL, product_name TEXT NOT NULL,
     quantity INTEGER NOT NULL, unit_price REAL NOT NULL,
+    cost_price REAL DEFAULT 0,
     discount REAL DEFAULT 0, total REAL NOT NULL)`);
+
+  await db.runAsync(`ALTER TABLE sale_items ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
 };
 
 const pharmacyTables = async (db) => {
@@ -188,7 +206,10 @@ const pharmacyTables = async (db) => {
     id INTEGER PRIMARY KEY AUTOINCREMENT, sale_id INTEGER NOT NULL,
     medicine_id INTEGER NOT NULL, medicine_name TEXT NOT NULL,
     quantity INTEGER NOT NULL, unit_price REAL NOT NULL,
+    cost_price REAL DEFAULT 0,
     discount REAL DEFAULT 0, total REAL NOT NULL)`);
+
+  await db.runAsync(`ALTER TABLE sale_items ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
 };
 
 const SCHEMA_MAP = {

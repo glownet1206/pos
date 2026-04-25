@@ -20,6 +20,37 @@ const cfg = (bizType) => {
   }
 };
 
+// Returns a SQL CASE expression that resolves cost_price for a sale_item row.
+// For tyre_shop: checks tyres table first, then spare_parts table.
+// For others: checks their respective inventory table.
+const costExpr = (bizType, siAlias = 'si') => {
+  if (bizType === 'tyre_shop') {
+    return `CASE
+      WHEN ${siAlias}.cost_price > 0 THEN ${siAlias}.cost_price * ${siAlias}.quantity
+      WHEN ${siAlias}.item_type = 'spare_part'
+        THEN COALESCE((SELECT sp.cost_price FROM spare_parts sp WHERE sp.id = ${siAlias}.tyre_id), 0) * ${siAlias}.quantity
+      ELSE COALESCE((SELECT t.cost_price FROM tyres t WHERE t.id = ${siAlias}.tyre_id), 0) * ${siAlias}.quantity
+    END`;
+  }
+  if (bizType === 'pharmacy') {
+    return `CASE
+      WHEN ${siAlias}.cost_price > 0 THEN ${siAlias}.cost_price * ${siAlias}.quantity
+      ELSE COALESCE((SELECT m.cost FROM medicines m WHERE m.id = ${siAlias}.medicine_id), 0) * ${siAlias}.quantity
+    END`;
+  }
+  if (bizType === 'general_store') {
+    return `CASE
+      WHEN ${siAlias}.cost_price > 0 THEN ${siAlias}.cost_price * ${siAlias}.quantity
+      ELSE COALESCE((SELECT p.cost FROM products p WHERE p.id = ${siAlias}.product_id), 0) * ${siAlias}.quantity
+    END`;
+  }
+  if (bizType === 'restaurant') {
+    // restaurants typically don't track cost price
+    return `0`;
+  }
+  return `COALESCE(${siAlias}.cost_price, 0) * ${siAlias}.quantity`;
+};
+
 router.get('/sales', async (req, res) => {
   try {
     const db = req.db;
@@ -33,12 +64,46 @@ router.get('/sales', async (req, res) => {
        FROM ${salesTbl} WHERE DATE(created_at) BETWEEN ? AND ? AND status='completed'`,
       [fromDate, toDate]
     );
+
+    // Calculate actual cost and profit — handles tyres + spare_parts both
+    let totalCost = 0, totalProfit = 0;
+    try {
+      const expr = costExpr(req.user.business_type);
+      const costData = await db.getAsync(
+        `SELECT COALESCE(SUM(${expr}), 0) as totalCost
+         FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
+         WHERE DATE(s.created_at) BETWEEN ? AND ? AND s.status='completed'`,
+        [fromDate, toDate]
+      );
+      totalCost = parseFloat(costData.totalCost || 0);
+      totalProfit = parseFloat(summary.revenue || 0) - totalCost;
+    } catch (_) {}
+
     const daily = await db.allAsync(
       `SELECT DATE(created_at) as date, COUNT(*) as sales, SUM(total) as revenue
        FROM ${salesTbl} WHERE DATE(created_at) BETWEEN ? AND ? AND status='completed'
        GROUP BY DATE(created_at) ORDER BY date`,
       [fromDate, toDate]
     );
+
+    // Add cost and profit per day — handles tyres + spare_parts both
+    const expr2 = costExpr(req.user.business_type);
+    for (const day of daily) {
+      try {
+        const dayCost = await db.getAsync(
+          `SELECT COALESCE(SUM(${expr2}), 0) as cost
+           FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
+           WHERE DATE(s.created_at)=? AND s.status='completed'`,
+          [day.date]
+        );
+        day.cost = parseFloat(dayCost.cost || 0);
+        day.profit = parseFloat(day.revenue || 0) - day.cost;
+      } catch (_) {
+        day.cost = 0;
+        day.profit = parseFloat(day.revenue || 0);
+      }
+    }
+
     const topItems = await db.allAsync(
       `SELECT si.${itemNameCol} as name, SUM(si.quantity) as qty, SUM(si.total) as revenue
        FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
@@ -46,7 +111,7 @@ router.get('/sales', async (req, res) => {
        GROUP BY si.${itemNameCol} ORDER BY qty DESC LIMIT 5`,
       [fromDate, toDate]
     );
-    res.json({ summary, daily, topTyres: topItems });
+    res.json({ summary: { ...summary, totalCost, totalProfit }, daily, topTyres: topItems });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -83,13 +148,26 @@ router.get('/inventory', async (req, res) => {
 router.get('/chart/weekly', async (req, res) => {
   try {
     const db = req.db;
-    const { salesTbl } = cfg(req.user.business_type);
+    const { salesTbl, itemsTbl, itemJoinCol } = cfg(req.user.business_type);
     const days = parseInt(req.query.days) || 14;
     const rows = await db.allAsync(
       `SELECT DATE(created_at) as date, COUNT(*) as sales, COALESCE(SUM(total),0) as revenue
        FROM ${salesTbl} WHERE DATE(created_at) >= DATE('now','-${days - 1} days') AND status='completed'
        GROUP BY DATE(created_at) ORDER BY date`
     );
+
+    // Get cost per day — handles tyres + spare_parts both
+    let costRows = [];
+    try {
+      const expr = costExpr(req.user.business_type);
+      costRows = await db.allAsync(
+        `SELECT DATE(s.created_at) as date, COALESCE(SUM(${expr}), 0) as cost
+         FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
+         WHERE DATE(s.created_at) >= DATE('now','-${days - 1} days') AND s.status='completed'
+         GROUP BY DATE(s.created_at)`
+      );
+    } catch (_) {}
+
     const result = [];
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date();
@@ -97,7 +175,17 @@ router.get('/chart/weekly', async (req, res) => {
       const pad = n => String(n).padStart(2, '0');
       const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
       const found = rows.find(r => r.date === key);
-      result.push({ date: key, day: d.toLocaleDateString('en-US', { weekday: 'short' }), sales: found ? found.sales : 0, revenue: parseFloat((found ? found.revenue : 0).toFixed(2)) });
+      const costFound = costRows.find(r => r.date === key);
+      const revenue = parseFloat((found ? found.revenue : 0).toFixed(2));
+      const cost = parseFloat((costFound ? costFound.cost : 0).toFixed(2));
+      result.push({
+        date: key,
+        day: d.toLocaleDateString('en-US', { weekday: 'short' }),
+        sales: found ? found.sales : 0,
+        revenue,
+        cost,
+        profit: parseFloat((revenue - cost).toFixed(2)),
+      });
     }
     res.json(result);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -154,7 +242,21 @@ router.get('/yearly', async (req, res) => {
          WHERE strftime('%Y', s.created_at)=? AND s.status='completed'`, [y.year]
       ).catch(() => ({ u: 0 }));
       y.unitsSold = units.u;
-      y.profit = Math.round(y.revenue * 0.25);
+
+      // Calculate actual profit from cost_price in sale_items
+      try {
+        const costData = await db.getAsync(
+          `SELECT COALESCE(SUM(si.cost_price * si.quantity), 0) as totalCost
+           FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
+           WHERE strftime('%Y', s.created_at)=? AND s.status='completed'`, [y.year]
+        );
+        const totalCost = parseFloat(costData.totalCost || 0);
+        y.totalCost = totalCost;
+        y.profit = totalCost > 0 ? Math.round(y.revenue - totalCost) : Math.round(y.revenue * 0.25);
+      } catch (_) {
+        y.profit = Math.round(y.revenue * 0.25);
+        y.totalCost = 0;
+      }
     }
 
     let invTbl = biz === 'tyre_shop' ? 'tyres' : biz === 'pharmacy' ? 'medicines' : biz === 'restaurant' ? 'menu_items' : 'products';

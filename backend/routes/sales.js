@@ -117,13 +117,27 @@ router.post('/', async (req, res) => {
       const itemId = item.tyre_id || item.product_id || item.medicine_id || item.item_id;
       const itemName = item.tyre_name || item.product_name || item.medicine_name || item.item_name;
 
+      // Fetch cost_price from inventory at time of sale
+      let costPrice = item.cost_price || 0;
+      if (!costPrice) {
+        try {
+          const invItem = await db.getAsync(`SELECT cost_price, cost FROM ${invTable} WHERE id=?`, [itemId]);
+          costPrice = invItem ? (invItem.cost_price || invItem.cost || 0) : 0;
+        } catch (_) {}
+      }
+
       await db.runAsync(
-        `INSERT INTO ${itemsTbl} (${itemJoinCol},${itemIdCol},${itemNameCol},quantity,unit_price,discount,total,item_type) VALUES (?,?,?,?,?,?,?,?)`,
-        [saleId, itemId, itemName, item.quantity, item.unit_price, item.discount || 0, itemTotal, itemType]
+        `INSERT INTO ${itemsTbl} (${itemJoinCol},${itemIdCol},${itemNameCol},quantity,unit_price,cost_price,discount,total,item_type) VALUES (?,?,?,?,?,?,?,?,?)`,
+        [saleId, itemId, itemName, item.quantity, item.unit_price, costPrice, item.discount || 0, itemTotal, itemType]
       ).catch(() =>
         db.runAsync(
-          `INSERT INTO ${itemsTbl} (${itemJoinCol},${itemIdCol},${itemNameCol},quantity,unit_price,discount,total) VALUES (?,?,?,?,?,?,?)`,
-          [saleId, itemId, itemName, item.quantity, item.unit_price, item.discount || 0, itemTotal]
+          `INSERT INTO ${itemsTbl} (${itemJoinCol},${itemIdCol},${itemNameCol},quantity,unit_price,discount,total,item_type) VALUES (?,?,?,?,?,?,?,?)`,
+          [saleId, itemId, itemName, item.quantity, item.unit_price, item.discount || 0, itemTotal, itemType]
+        ).catch(() =>
+          db.runAsync(
+            `INSERT INTO ${itemsTbl} (${itemJoinCol},${itemIdCol},${itemNameCol},quantity,unit_price,discount,total) VALUES (?,?,?,?,?,?,?)`,
+            [saleId, itemId, itemName, item.quantity, item.unit_price, item.discount || 0, itemTotal]
+          )
         )
       );
 

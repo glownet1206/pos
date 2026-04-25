@@ -36,11 +36,11 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { name, category, brand, price, stock, low_stock_threshold, barcode } = req.body;
+    const { name, category, brand, price, cost_price, car_type, stock, low_stock_threshold, barcode } = req.body;
     if (!name || !price) return res.status(400).json({ error: 'Name and price required' });
     const r = await req.db.runAsync(
-      'INSERT INTO spare_parts (name,category,brand,price,stock,low_stock_threshold,barcode) VALUES (?,?,?,?,?,?,?)',
-      [name, category||'General', brand||null, price, stock||0, low_stock_threshold||5, barcode||null]
+      'INSERT INTO spare_parts (name,category,brand,price,cost_price,car_type,stock,low_stock_threshold,barcode) VALUES (?,?,?,?,?,?,?,?,?)',
+      [name, category||'General', brand||null, price, cost_price||0, car_type||'', stock||0, low_stock_threshold||5, barcode||null]
     );
     res.status(201).json({ id: r.lastID });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -48,10 +48,10 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const { name, category, brand, price, stock, low_stock_threshold, barcode } = req.body;
+    const { name, category, brand, price, cost_price, car_type, stock, low_stock_threshold, barcode } = req.body;
     await req.db.runAsync(
-      'UPDATE spare_parts SET name=?,category=?,brand=?,price=?,stock=?,low_stock_threshold=?,barcode=? WHERE id=?',
-      [name, category||'General', brand||null, price, stock||0, low_stock_threshold||5, barcode||null, req.params.id]
+      'UPDATE spare_parts SET name=?,category=?,brand=?,price=?,cost_price=?,car_type=?,stock=?,low_stock_threshold=?,barcode=? WHERE id=?',
+      [name, category||'General', brand||null, price, cost_price||0, car_type||'', stock||0, low_stock_threshold||5, barcode||null, req.params.id]
     );
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
