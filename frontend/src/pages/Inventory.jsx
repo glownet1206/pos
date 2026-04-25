@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { tyresAPI } from '../api';
 import { MdAdd, MdEdit, MdDelete, MdSearch, MdChevronLeft, MdChevronRight, MdQrCode } from 'react-icons/md';
 import toast from 'react-hot-toast';
-import { getConfig } from '../businessConfig';
+import { getConfig, addCustomCategory } from '../businessConfig';
 import BarcodeDisplay from '../components/BarcodeDisplay';
 import CarTypeSelect from '../components/CarTypeSelect';
 import CustomSelect from '../components/CustomSelect';
@@ -10,7 +10,10 @@ import CustomSelect from '../components/CustomSelect';
 const PAGE_SIZE = 7;
 
 export default function Inventory({ user }) {
-  const cfg = getConfig(user?.business_type);
+  const [configVersion, setConfigVersion] = useState(0); // Force re-render when config changes
+  
+  // Get fresh config when configVersion changes
+  const cfg = useMemo(() => getConfig(user?.business_type), [user?.business_type, configVersion]);
   const Icon = cfg.inventoryIcon;
   const themeColor = cfg.color;
 
@@ -38,6 +41,12 @@ export default function Inventory({ user }) {
     window.addEventListener('resize', h);
     return () => window.removeEventListener('resize', h);
   }, []);
+
+  const handleAddCustomCategory = (category) => {
+    addCustomCategory(user?.business_type, category);
+    setConfigVersion(v => v + 1); // Force re-render with updated config
+    toast.success(`Category "${category}" added!`);
+  };
 
   const load = () => {
     setLoading(true);
@@ -182,6 +191,7 @@ export default function Inventory({ user }) {
                         </td>
                         <td style={{ fontWeight: 600, color: 'var(--gray-600)' }}>
                           {item.category || item.type || '—'}
+                          {item.size && item.size !== 'Regular' && <span style={{ marginLeft:6, fontSize:11, color:'var(--gray-400)', fontWeight:500 }}>({item.size})</span>}
                         </td>
                         <td style={{ fontWeight: 800, color: themeColor }}>{currency} {Number(item.price).toFixed(2)}</td>
                         <td style={{ color: 'var(--gray-500)', fontSize: 13 }}>
@@ -313,7 +323,10 @@ export default function Inventory({ user }) {
                           value={form[field.key] ?? ''}
                           onChange={val => setForm(f => ({ ...f, [field.key]: val }))}
                           options={field.options}
-                          placeholder={field.options[0] || 'Select...'}
+                          optionLabels={field.optionLabels}
+                          placeholder={field.optionLabels ? field.optionLabels[0] : (field.options[0] || 'Select...')}
+                          allowCustom={field.allowCustom}
+                          onAddCustom={field.allowCustom ? handleAddCustomCategory : null}
                         />
                       ) : field.type === 'datalist' ? (
                         <CarTypeSelect

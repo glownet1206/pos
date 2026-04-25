@@ -65,18 +65,32 @@ export const BUSINESS_CONFIG = {
     suppliersLabel: 'Suppliers',
     showTables: true,
     itemFields: [
-      { key: 'name',                label: 'Item Name',        type: 'text',   required: true,  placeholder: 'e.g. Chicken Burger' },
-      { key: 'category',            label: 'Category',         type: 'select', required: false, options: ['Starters','Main Course','Drinks','Desserts','Snacks','Other'] },
-      { key: 'price',               label: 'Price',            type: 'number', required: true,  isCurrency: true },
-      { key: 'stock',               label: 'Available Qty',    type: 'number', required: false },
-      { key: 'low_stock_threshold', label: 'Low Stock Alert',  type: 'number', required: false },
-      { key: 'available',           label: 'Available',        type: 'select', required: false, options: ['1','0'], optionLabels: ['Yes','No'] },
+      { key: 'name',     label: 'Item Name',    type: 'text',   required: true,  placeholder: 'e.g. Zinger Burger', fullWidth: true },
+      { key: 'category', label: 'Category',     type: 'select', required: false,
+        options: [
+          'Burger','Pizza','BBQ & Grill','Fried Chicken','Shawarma & Wraps',
+          'Biryani & Rice','Karahi & Curry','Pasta & Noodles',
+          'Sandwich & Sub','Roll & Paratha',
+          'Hot Coffee','Cold Coffee','Tea','Juices & Drinks','Milkshake','Smoothie',
+          'Starters & Snacks','Soup','Salad',
+          'Desserts & Ice Cream','Cake & Pastry',
+          'Breakfast','Kids Meal','Family Deal','Other',
+        ],
+      },
+      { key: 'size',      label: 'Size',         type: 'select', required: false,
+        options: ['Regular','Small','Medium','Large','Extra Large','Full','Half','Single','Double','Triple'],
+      },
+      { key: 'price',     label: 'Sale Price',   type: 'number', required: true,  isCurrency: true },
+      { key: 'cost',      label: 'Cost Price',   type: 'number', required: false, isCurrency: true },
+      { key: 'available', label: 'Available',    type: 'select', required: false,
+        options: ['1','0'], optionLabels: ['Yes — Available','No — Unavailable'],
+      },
     ],
     itemName: (item) => item.name,
-    itemSubtitle: (item) => item.category,
-    filterOptions: ['All', 'Starters', 'Main Course', 'Drinks', 'Desserts', 'Snacks'],
+    itemSubtitle: (item) => [item.category, item.size].filter(Boolean).join(' · '),
+    filterOptions: ['All', 'Burger', 'Pizza', 'BBQ & Grill', 'Fried Chicken', 'Hot Coffee', 'Cold Coffee', 'Juices & Drinks', 'Desserts & Ice Cream', 'Other'],
     filterKey: 'category',
-    emptyDefaults: { name:'', category:'Main Course', price:'', stock:'', low_stock_threshold:5, available:'1' },
+    emptyDefaults: { name:'', category:'Burger', size:'Regular', price:'', cost:'', available:'1' },
   },
 
   general_store: {
@@ -93,7 +107,9 @@ export const BUSINESS_CONFIG = {
     itemFields: [
       { key: 'name',                label: 'Product Name',     type: 'text',   required: true,  placeholder: 'e.g. Surf Excel 1kg' },
       { key: 'brand',               label: 'Brand',            type: 'text',   required: false, placeholder: 'e.g. Unilever' },
-      { key: 'category',            label: 'Category',         type: 'select', required: false, options: ['Grocery','Beverages','Dairy','Snacks','Cleaning','Personal Care','Other'] },
+      { key: 'category',            label: 'Category',         type: 'select', required: false, 
+        options: ['Grocery','Beverages','Dairy','Snacks','Cleaning','Personal Care','Other'],
+        allowCustom: true },
       { key: 'barcode',             label: 'Barcode',          type: 'text',   required: false, placeholder: 'Optional' },
       { key: 'price',               label: 'Sale Price',       type: 'number', required: true,  isCurrency: true },
       { key: 'cost',                label: 'Cost Price',       type: 'number', required: false, isCurrency: true },
@@ -122,7 +138,7 @@ export const BUSINESS_CONFIG = {
       { key: 'name',                label: 'Medicine Name',    type: 'text',   required: true,  placeholder: 'e.g. Panadol 500mg' },
       { key: 'generic_name',        label: 'Generic Name',     type: 'text',   required: false, placeholder: 'e.g. Paracetamol' },
       { key: 'company',             label: 'Company',          type: 'text',   required: false, placeholder: 'e.g. GSK' },
-      { key: 'category',            label: 'Category',         type: 'select', required: false, options: ['Tablet','Syrup','Injection','Capsule','Cream','Drops','Other'] },
+      { key: 'category',            label: 'Category',         type: 'select', required: false, options: ['Tablet','Syrup','Injection','Capsule','Cream','Drops','Other'], allowCustom: true },
       { key: 'barcode',             label: 'Barcode',          type: 'text',   required: false, placeholder: 'Optional' },
       { key: 'price',               label: 'Sale Price',       type: 'number', required: true,  isCurrency: true },
       { key: 'cost',                label: 'Cost Price',       type: 'number', required: false, isCurrency: true },
@@ -138,4 +154,59 @@ export const BUSINESS_CONFIG = {
   },
 };
 
-export const getConfig = (businessType) => BUSINESS_CONFIG[businessType] || BUSINESS_CONFIG.general_store;
+// Custom categories management
+const CUSTOM_CATEGORIES_KEY = 'custom_categories';
+
+export const getCustomCategories = (businessType) => {
+  try {
+    const stored = localStorage.getItem(`${CUSTOM_CATEGORIES_KEY}_${businessType}`);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const addCustomCategory = (businessType, category) => {
+  try {
+    const existing = getCustomCategories(businessType);
+    if (!existing.includes(category)) {
+      const updated = [...existing, category];
+      localStorage.setItem(`${CUSTOM_CATEGORIES_KEY}_${businessType}`, JSON.stringify(updated));
+      return updated;
+    }
+    return existing;
+  } catch {
+    return [];
+  }
+};
+
+export const getConfig = (businessType) => {
+  const config = BUSINESS_CONFIG[businessType] || BUSINESS_CONFIG.general_store;
+  
+  // Add custom categories to general store and pharmacy configs
+  if (businessType === 'general_store' || businessType === 'pharmacy') {
+    const customCategories = getCustomCategories(businessType);
+    if (customCategories.length > 0) {
+      const updatedConfig = { ...config };
+      updatedConfig.itemFields = config.itemFields.map(field => {
+        if (field.key === 'category') {
+          return {
+            ...field,
+            options: [...field.options, ...customCategories.filter(cat => !field.options.includes(cat))]
+          };
+        }
+        return field;
+      });
+      updatedConfig.filterOptions = [
+        'All',
+        ...config.filterOptions.slice(1),
+        ...customCategories.filter(cat => !config.filterOptions.includes(cat))
+      ];
+      return updatedConfig;
+    }
+  }
+  
+  return config;
+};
+
+

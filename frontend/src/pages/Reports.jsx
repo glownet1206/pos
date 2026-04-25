@@ -14,7 +14,7 @@ import ChartTip from '../components/reports/ChartTip';
 import GradCard from '../components/reports/GradCard';
 import CalendarWidget from '../components/reports/CalendarWidget';
 
-const getCur = () => localStorage.getItem('inv_currency') || '$';
+const getCur = () => localStorage.getItem('inv_currency') || 'Rs.';
 
 const PIE_COLORS = ['#f97316','#3b82f6','#10b981','#8b5cf6','#ef4444'];
 const fmt = n => Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -42,8 +42,14 @@ export default function Reports({ user }) {
     window.addEventListener('resize', handler);
     return () => window.removeEventListener('resize', handler);
   }, []);
-  const [from, setFrom] = useState(() => { const d=new Date(); d.setDate(d.getDate()-30); return d.toISOString().split('T')[0]; });
-  const [to, setTo] = useState(new Date().toISOString().split('T')[0]);
+  const [from, setFrom] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate()-30);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
+  const [to, setTo] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  });
 
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(new Date().getMonth() + 1);
@@ -117,7 +123,12 @@ export default function Reports({ user }) {
             <div className="form-group" style={{ marginBottom:0, flex:'1 1 140px' }}><label className="form-label">To</label><input type="date" className="form-control" value={to} onChange={e=>setTo(e.target.value)} /></div>
             <div style={{ display:'flex', gap:6, paddingBottom:2, flexWrap:'wrap' }}>
               {[['7D',7],['30D',30],['90D',90]].map(([lbl,days]) => (
-                <button key={lbl} onClick={() => { const d=new Date(); d.setDate(d.getDate()-days); setFrom(d.toISOString().split('T')[0]); setTo(new Date().toISOString().split('T')[0]); }}
+                <button key={lbl} onClick={() => {
+                  const d=new Date(); d.setDate(d.getDate()-days);
+                  const fmt = x => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+                  setFrom(fmt(d));
+                  const t=new Date(); setTo(fmt(t));
+                }}
                   style={{ padding:'8px 14px', borderRadius:8, border:'1.5px solid var(--gray-200)', background:'white', color:'var(--gray-500)', fontSize:12.5, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}
                   onMouseEnter={e=>{e.currentTarget.style.borderColor='var(--orange)';e.currentTarget.style.color='var(--orange)';}}
                   onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--gray-200)';e.currentTarget.style.color='var(--gray-500)';}}
@@ -131,13 +142,7 @@ export default function Reports({ user }) {
             <GradCard label="Discounts" value={`${cur}${fmt(salesRep.summary.totalDiscount)}`} icon={MdDiscount} gradient="linear-gradient(135deg,#ef4444,#dc2626)" shadow="0 8px 24px rgba(239,68,68,0.3)" />
             <GradCard label="Tax Collected" value={`${cur}${fmt(salesRep.summary.totalTax)}`} icon={MdTrendingUp} gradient="linear-gradient(135deg,#10b981,#059669)" shadow="0 8px 24px rgba(16,185,129,0.3)" />
           </div>
-          {salesRep.summary.totalCost > 0 && (
-            <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3,1fr)', gap:14, marginBottom:24 }}>
-              <GradCard label="Total Cost" value={`${cur}${fmt(salesRep.summary.totalCost)}`} icon={MdAttachMoney} gradient="linear-gradient(135deg,#64748b,#475569)" shadow="0 8px 24px rgba(100,116,139,0.3)" />
-              <GradCard label="Net Profit" value={`${cur}${fmt(salesRep.summary.totalProfit)}`} icon={MdAutoGraph} gradient={salesRep.summary.totalProfit >= 0 ? "linear-gradient(135deg,#10b981,#059669)" : "linear-gradient(135deg,#ef4444,#dc2626)"} shadow={salesRep.summary.totalProfit >= 0 ? "0 8px 24px rgba(16,185,129,0.3)" : "0 8px 24px rgba(239,68,68,0.3)"} />
-              <GradCard label="Profit Margin" value={salesRep.summary.revenue > 0 ? `${((salesRep.summary.totalProfit / salesRep.summary.revenue) * 100).toFixed(1)}%` : '—'} icon={FaFire} gradient="linear-gradient(135deg,#f59e0b,#d97706)" shadow="0 8px 24px rgba(245,158,11,0.3)" />
-            </div>
-          )}
+
           <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap:18, marginBottom:24 }}>
             <div className="card">
               <div className="card-header"><span className="card-title" style={{ display:'flex', alignItems:'center', gap:8 }}><MdShowChart style={{ color:'var(--orange)', fontSize:18 }} />Revenue Trend</span></div>
@@ -233,9 +238,17 @@ export default function Reports({ user }) {
       {tab === 'inventory' && invRep && (
         <>
           <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap:14, marginBottom:24 }}>
-            <GradCard label="Total Tyres" value={invRep.all.length} icon={MdInventory2} gradient="linear-gradient(135deg,#3b82f6,#2563eb)" shadow="0 8px 24px rgba(59,130,246,0.3)" />
-            <GradCard label="Tyre Stock" value={invRep.all.reduce((s,t)=>s+(t.stock||0),0)} icon={MdBarChart} gradient="linear-gradient(135deg,#f97316,#ea580c)" shadow="0 8px 24px rgba(249,115,22,0.3)" />
-            <GradCard label="Tyre Low Stock" value={invRep.lowStock.length} icon={MdWarning} gradient="linear-gradient(135deg,#ef4444,#dc2626)" shadow="0 8px 24px rgba(239,68,68,0.3)" />
+            <GradCard
+              label={biz === 'restaurant' ? 'Total Menu Items' : biz === 'pharmacy' ? 'Total Medicines' : biz === 'general_store' ? 'Total Products' : 'Total Tyres'}
+              value={invRep.all.length} icon={MdInventory2} gradient="linear-gradient(135deg,#3b82f6,#2563eb)" shadow="0 8px 24px rgba(59,130,246,0.3)" />
+            <GradCard
+              label={biz === 'restaurant' ? 'Available Items' : biz === 'pharmacy' ? 'Medicine Stock' : biz === 'general_store' ? 'Product Stock' : 'Tyre Stock'}
+              value={biz === 'restaurant' ? invRep.all.filter(i => i.available === 1 || i.available === '1').length : invRep.all.reduce((s,t)=>s+(t.stock||0),0)}
+              icon={MdBarChart} gradient="linear-gradient(135deg,#f97316,#ea580c)" shadow="0 8px 24px rgba(249,115,22,0.3)" />
+            <GradCard
+              label={biz === 'restaurant' ? 'Unavailable Items' : 'Low Stock'}
+              value={biz === 'restaurant' ? invRep.outOfStock.length : invRep.lowStock.length}
+              icon={MdWarning} gradient="linear-gradient(135deg,#ef4444,#dc2626)" shadow="0 8px 24px rgba(239,68,68,0.3)" />
             <GradCard label="Inventory Value" value={`${cur}${fmt(invRep.totalValue)}`} icon={MdTrendingUp} gradient="linear-gradient(135deg,#10b981,#059669)" shadow="0 8px 24px rgba(16,185,129,0.3)" />
           </div>
           {spRep && (
@@ -251,7 +264,14 @@ export default function Reports({ user }) {
               <div className="card-header"><span className="card-title">Stock by Category</span></div>
               {(() => {
                 const groupKey = biz === 'tyre_shop' ? 'brand' : 'category';
-                const grouped = invRep.all.reduce((acc,t)=>{const k=t[groupKey]||'Other';acc[k]=(acc[k]||0)+(t.stock||0);return acc;},{});
+                const grouped = invRep.all.reduce((acc,t) => {
+                  const k = t[groupKey] || 'Other';
+                  const val = biz === 'restaurant'
+                    ? (t.available === 1 || t.available === '1' ? 1 : 0)
+                    : (t.stock || 0);
+                  acc[k] = (acc[k] || 0) + val;
+                  return acc;
+                }, {});
                 const bd = Object.entries(grouped).map(([name,stock])=>({name,stock})).sort((a,b)=>b.stock-a.stock).slice(0,8);
                 return (
                   <ResponsiveContainer width="100%" height={220}>
@@ -335,14 +355,21 @@ export default function Reports({ user }) {
                           </div>
                           <div style={{ textAlign:'right', flexShrink:0 }}>
                             <div style={{ fontWeight:800, color:'var(--orange)', fontSize:13 }}>{cur}{(t.price||0).toFixed(2)}</div>
-                            <div style={{ fontSize:11, color:'var(--gray-500)', marginTop:2 }}>Qty: {t.stock}</div>
-                            <div style={{ fontSize:11, color:'var(--gray-400)' }}>Val: {cur}{((t.price||0)*t.stock).toFixed(2)}</div>
+                            {biz === 'restaurant'
+                              ? <span className={`badge badge-${t.available==1?'success':'danger'}`} style={{ fontSize:10, marginTop:2 }}>{t.available==1?'Available':'Unavailable'}</span>
+                              : <><div style={{ fontSize:11, color:'var(--gray-500)', marginTop:2 }}>Qty: {t.stock}</div>
+                                 <div style={{ fontSize:11, color:'var(--gray-400)' }}>Val: {cur}{((t.price||0)*t.stock).toFixed(2)}</div></>
+                            }
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="table-wrap"><table><thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Value</th></tr></thead><tbody>{paged.map(t=>(<tr key={t.id}><td style={{ fontWeight:800 }}>{t.name||`${t.brand||''} ${t.model||''}`}</td><td>{t.category||t.size||'—'}</td><td style={{ color:'var(--orange)', fontWeight:700 }}>{cur}{(t.price||0).toFixed(2)}</td><td style={{ fontWeight:700 }}>{t.stock}</td><td style={{ fontWeight:600 }}>{cur}{((t.price||0)*t.stock).toFixed(2)}</td></tr>))}</tbody></table></div>
+                    biz === 'restaurant' ? (
+                      <div className="table-wrap"><table><thead><tr><th>Name</th><th>Category</th><th>Size</th><th>Price</th><th>Status</th></tr></thead><tbody>{paged.map(t=>(<tr key={t.id}><td style={{ fontWeight:800 }}>{t.name}</td><td>{t.category||'—'}</td><td>{t.size||'—'}</td><td style={{ color:'var(--orange)', fontWeight:700 }}>{cur}{(t.price||0).toFixed(2)}</td><td><span className={`badge badge-${t.available==1?'success':'danger'}`}>{t.available==1?'Available':'Unavailable'}</span></td></tr>))}</tbody></table></div>
+                    ) : (
+                      <div className="table-wrap"><table><thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Value</th></tr></thead><tbody>{paged.map(t=>(<tr key={t.id}><td style={{ fontWeight:800 }}>{t.name||`${t.brand||''} ${t.model||''}`}</td><td>{t.category||t.size||'—'}</td><td style={{ color:'var(--orange)', fontWeight:700 }}>{cur}{(t.price||0).toFixed(2)}</td><td style={{ fontWeight:700 }}>{t.stock}</td><td style={{ fontWeight:600 }}>{cur}{((t.price||0)*t.stock).toFixed(2)}</td></tr>))}</tbody></table></div>
+                    )
                   )}
                   <Pagination page={pg} setPage={setInvPage} total={invRep.all.length} pageSize={INV_PAGE_SIZE} />
                 </>
@@ -358,9 +385,19 @@ export default function Reports({ user }) {
           {!yearly ? <div className="spinner" /> : (
             <>
               <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap:14, marginBottom:24 }}>
-                <GradCard label="Total Products" value={yearly.totalProducts} sub="In catalogue" icon={GiTyre} gradient="linear-gradient(135deg,#f97316,#ea580c)" shadow="0 8px 24px rgba(249,115,22,0.3)" />
-                <GradCard label="Current Stock" value={yearly.currentStock} sub="Units available" icon={MdInventory2} gradient="linear-gradient(135deg,#3b82f6,#2563eb)" shadow="0 8px 24px rgba(59,130,246,0.3)" />
-                <GradCard label="Inventory Value" value={fmtShort(yearly.inventoryValue)} sub="Stock worth" icon={MdAttachMoney} gradient="linear-gradient(135deg,#10b981,#059669)" shadow="0 8px 24px rgba(16,185,129,0.3)" />
+                <GradCard
+                  label={biz === 'restaurant' ? 'Total Menu Items' : biz === 'pharmacy' ? 'Total Medicines' : biz === 'general_store' ? 'Total Products' : 'Total Products'}
+                  value={yearly.totalProducts} sub="In catalogue" icon={GiTyre} gradient="linear-gradient(135deg,#f97316,#ea580c)" shadow="0 8px 24px rgba(249,115,22,0.3)" />
+                <GradCard
+                  label={biz === 'restaurant' ? 'Available Items' : 'Current Stock'}
+                  value={yearly.currentStock}
+                  sub={biz === 'restaurant' ? 'On menu' : 'Units available'}
+                  icon={MdInventory2} gradient="linear-gradient(135deg,#3b82f6,#2563eb)" shadow="0 8px 24px rgba(59,130,246,0.3)" />
+                <GradCard
+                  label={biz === 'restaurant' ? 'Menu Value' : 'Inventory Value'}
+                  value={fmtShort(yearly.inventoryValue)}
+                  sub={biz === 'restaurant' ? 'Total menu price' : 'Stock worth'}
+                  icon={MdAttachMoney} gradient="linear-gradient(135deg,#10b981,#059669)" shadow="0 8px 24px rgba(16,185,129,0.3)" />
                 <GradCard label="All-Time Revenue" value={fmtShort(yearly.yearly.reduce((a,y)=>a+y.revenue,0))} sub="Total earned" icon={FaChartLine} gradient="linear-gradient(135deg,#8b5cf6,#7c3aed)" shadow="0 8px 24px rgba(139,92,246,0.3)" />
               </div>
 

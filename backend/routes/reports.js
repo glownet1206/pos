@@ -45,8 +45,10 @@ const costExpr = (bizType, siAlias = 'si') => {
     END`;
   }
   if (bizType === 'restaurant') {
-    // restaurants typically don't track cost price
-    return `0`;
+    return `CASE
+      WHEN ${siAlias}.cost_price > 0 THEN ${siAlias}.cost_price * ${siAlias}.quantity
+      ELSE COALESCE((SELECT m.cost FROM menu_items m WHERE m.id = ${siAlias}.item_id), 0) * ${siAlias}.quantity
+    END`;
   }
   return `COALESCE(${siAlias}.cost_price, 0) * ${siAlias}.quantity`;
 };
@@ -127,20 +129,20 @@ router.get('/inventory', async (req, res) => {
     const all = await db.allAsync(`SELECT * FROM ${tbl} ORDER BY id`).catch(() => []);
 
     let lowStock = [], outOfStock = [];
-    if (biz === 'tyre_shop') {
-
+    if (biz === 'restaurant') {
+      lowStock   = [];
+      outOfStock = await db.allAsync(`SELECT * FROM ${tbl} WHERE available = 0`).catch(() => []);
+    } else if (biz === 'tyre_shop') {
       lowStock   = await db.allAsync(`SELECT * FROM ${tbl} WHERE stock <= COALESCE(low_stock_threshold, 5) AND stock > 0`).catch(() => []);
       outOfStock = await db.allAsync(`SELECT * FROM ${tbl} WHERE stock = 0`).catch(() => []);
-    } else if (biz === 'restaurant') {
-      lowStock   = await db.allAsync(`SELECT * FROM ${tbl} WHERE stock <= 10 AND stock > 0`).catch(() => []);
-      outOfStock = await db.allAsync(`SELECT * FROM ${tbl} WHERE stock = 0`).catch(() => []);
     } else {
-
       lowStock   = await db.allAsync(`SELECT * FROM ${tbl} WHERE stock <= COALESCE(low_stock_threshold, 10) AND stock > 0`).catch(() => []);
       outOfStock = await db.allAsync(`SELECT * FROM ${tbl} WHERE stock = 0`).catch(() => []);
     }
 
-    const totalValue = await db.getAsync(`SELECT COALESCE(SUM(price*stock),0) as value FROM ${tbl}`).catch(() => ({ value: 0 }));
+    const totalValue = biz === 'restaurant'
+      ? await db.getAsync(`SELECT COALESCE(SUM(price),0) as value FROM ${tbl}`).catch(() => ({ value: 0 }))
+      : await db.getAsync(`SELECT COALESCE(SUM(price*stock),0) as value FROM ${tbl}`).catch(() => ({ value: 0 }));
     res.json({ all, lowStock, outOfStock, totalValue: totalValue.value });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -243,26 +245,34 @@ router.get('/yearly', async (req, res) => {
       ).catch(() => ({ u: 0 }));
       y.unitsSold = units.u;
 
-      // Calculate actual profit from cost_price in sale_items
+      // Calculate actual profit using costExpr (handles all business types + fallback to inventory)
       try {
+        const expr = costExpr(biz);
         const costData = await db.getAsync(
-          `SELECT COALESCE(SUM(si.cost_price * si.quantity), 0) as totalCost
+          `SELECT COALESCE(SUM(${expr}), 0) as totalCost
            FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
            WHERE strftime('%Y', s.created_at)=? AND s.status='completed'`, [y.year]
         );
         const totalCost = parseFloat(costData.totalCost || 0);
         y.totalCost = totalCost;
-        y.profit = totalCost > 0 ? Math.round(y.revenue - totalCost) : Math.round(y.revenue * 0.25);
+        y.profit = Math.round(y.revenue - totalCost);
       } catch (_) {
-        y.profit = Math.round(y.revenue * 0.25);
+        y.profit = 0;
         y.totalCost = 0;
       }
     }
 
     let invTbl = biz === 'tyre_shop' ? 'tyres' : biz === 'pharmacy' ? 'medicines' : biz === 'restaurant' ? 'menu_items' : 'products';
-    const invStats = await db.getAsync(
-      `SELECT COUNT(*) as total, COALESCE(SUM(stock),0) as totalStock, COALESCE(SUM(price*stock),0) as value FROM ${invTbl}`
-    ).catch(() => ({ total: 0, totalStock: 0, value: 0 }));
+    let invStats;
+    if (biz === 'restaurant') {
+      invStats = await db.getAsync(
+        `SELECT COUNT(*) as total, COUNT(*) as totalStock, COALESCE(SUM(price),0) as value FROM ${invTbl} WHERE available=1`
+      ).catch(() => ({ total: 0, totalStock: 0, value: 0 }));
+    } else {
+      invStats = await db.getAsync(
+        `SELECT COUNT(*) as total, COALESCE(SUM(stock),0) as totalStock, COALESCE(SUM(price*stock),0) as value FROM ${invTbl}`
+      ).catch(() => ({ total: 0, totalStock: 0, value: 0 }));
+    }
 
     res.json({
       yearly: years,
@@ -302,14 +312,13 @@ router.get('/notifications', async (req, res) => {
     try {
       let lowStock = [], outOfStock = [];
       if (biz === 'restaurant') {
-        lowStock   = await db.allAsync(`SELECT * FROM ${invTbl} WHERE stock <= 10 AND stock > 0`);
-        outOfStock = await db.allAsync(`SELECT * FROM ${invTbl} WHERE stock = 0`);
+        outOfStock = await db.allAsync(`SELECT * FROM ${invTbl} WHERE available = 0`);
       } else {
         lowStock   = await db.allAsync(`SELECT * FROM ${invTbl} WHERE stock <= COALESCE(low_stock_threshold, 10) AND stock > 0`);
         outOfStock = await db.allAsync(`SELECT * FROM ${invTbl} WHERE stock = 0`);
       }
-      outOfStock.forEach(t => notifs.push({ id: 'oos-' + t.id, type: 'danger',  title: 'Out of Stock', msg: t.name || `${t.brand} ${t.model}` }));
-      lowStock.forEach(t   => notifs.push({ id: 'low-' + t.id, type: 'warning', title: 'Low Stock',    msg: `${t.name || `${t.brand} ${t.model}`} — ${t.stock} left` }));
+      outOfStock.forEach(t => notifs.push({ id: 'oos-' + t.id, type: 'danger',  title: biz === 'restaurant' ? 'Unavailable Item' : 'Out of Stock', msg: t.name || `${t.brand} ${t.model}` }));
+      lowStock.forEach(t   => notifs.push({ id: 'low-' + t.id, type: 'warning', title: 'Low Stock', msg: `${t.name || `${t.brand} ${t.model}`} — ${t.stock} left` }));
     } catch (_) {}
 
     if (todaySales && todaySales.c > 0)

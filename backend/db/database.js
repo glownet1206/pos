@@ -88,7 +88,10 @@ const tyreShopTables = async (db) => {
     size TEXT NOT NULL, type TEXT DEFAULT 'Passenger', price REAL NOT NULL,
     cost_price REAL DEFAULT 0, car_type TEXT DEFAULT '',
     stock INTEGER DEFAULT 0, low_stock_threshold INTEGER DEFAULT 10,
-    barcode TEXT UNIQUE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+    barcode TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+
+  await db.runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tyres_barcode ON tyres(barcode) WHERE barcode IS NOT NULL AND barcode != ''`).catch(() => {});
 
   // Migrations for existing tyres table
   await db.runAsync(`ALTER TABLE tyres ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
@@ -99,8 +102,10 @@ const tyreShopTables = async (db) => {
     brand TEXT, price REAL NOT NULL, cost_price REAL DEFAULT 0,
     car_type TEXT DEFAULT '',
     stock INTEGER DEFAULT 0,
-    low_stock_threshold INTEGER DEFAULT 5, barcode TEXT UNIQUE,
+    low_stock_threshold INTEGER DEFAULT 5, barcode TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+
+  await db.runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_spare_parts_barcode ON spare_parts(barcode) WHERE barcode IS NOT NULL AND barcode != ''`).catch(() => {});
 
   // Migrations for existing spare_parts table
   await db.runAsync(`ALTER TABLE spare_parts ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
@@ -140,8 +145,13 @@ const restaurantTables = async (db) => {
   await commonTables(db);
   await db.runAsync(`CREATE TABLE IF NOT EXISTS menu_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT,
-    price REAL NOT NULL, stock INTEGER DEFAULT 0, available INTEGER DEFAULT 1,
+    size TEXT DEFAULT 'Regular', price REAL NOT NULL, cost REAL DEFAULT 0,
+    available INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+
+  // Migrations for existing menu_items
+  await db.runAsync(`ALTER TABLE menu_items ADD COLUMN size TEXT DEFAULT 'Regular'`).catch(() => {});
+  await db.runAsync(`ALTER TABLE menu_items ADD COLUMN cost REAL DEFAULT 0`).catch(() => {});
 
   await db.runAsync(`CREATE TABLE IF NOT EXISTS tables (
     id INTEGER PRIMARY KEY AUTOINCREMENT, table_number TEXT NOT NULL,
@@ -158,16 +168,21 @@ const restaurantTables = async (db) => {
     id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL,
     item_id INTEGER NOT NULL, item_name TEXT NOT NULL,
     quantity INTEGER NOT NULL, unit_price REAL NOT NULL,
+    cost_price REAL DEFAULT 0,
     discount REAL DEFAULT 0, total REAL NOT NULL)`);
+
+  await db.runAsync(`ALTER TABLE order_items ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
 };
 
 const generalStoreTables = async (db) => {
   await commonTables(db);
   await db.runAsync(`CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT,
-    brand TEXT, barcode TEXT UNIQUE, price REAL NOT NULL, cost REAL DEFAULT 0,
+    brand TEXT, barcode TEXT, price REAL NOT NULL, cost REAL DEFAULT 0,
     stock INTEGER DEFAULT 0, low_stock_threshold INTEGER DEFAULT 5,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+
+  await db.runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode) WHERE barcode IS NOT NULL AND barcode != ''`).catch(() => {});
 
   await db.runAsync(`CREATE TABLE IF NOT EXISTS sales (
     id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, customer_name TEXT,
@@ -181,19 +196,23 @@ const generalStoreTables = async (db) => {
     product_id INTEGER NOT NULL, product_name TEXT NOT NULL,
     quantity INTEGER NOT NULL, unit_price REAL NOT NULL,
     cost_price REAL DEFAULT 0,
-    discount REAL DEFAULT 0, total REAL NOT NULL)`);
+    discount REAL DEFAULT 0, total REAL NOT NULL,
+    item_type TEXT DEFAULT 'product')`);
 
   await db.runAsync(`ALTER TABLE sale_items ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
+  await db.runAsync(`ALTER TABLE sale_items ADD COLUMN item_type TEXT DEFAULT 'product'`).catch(() => {});
 };
 
 const pharmacyTables = async (db) => {
   await commonTables(db);
   await db.runAsync(`CREATE TABLE IF NOT EXISTS medicines (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, generic_name TEXT,
-    company TEXT, category TEXT, barcode TEXT UNIQUE,
+    company TEXT, category TEXT, barcode TEXT,
     price REAL NOT NULL, cost REAL DEFAULT 0,
     stock INTEGER DEFAULT 0, low_stock_threshold INTEGER DEFAULT 10,
     expiry_date DATE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+
+  await db.runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_medicines_barcode ON medicines(barcode) WHERE barcode IS NOT NULL AND barcode != ''`).catch(() => {});
 
   await db.runAsync(`CREATE TABLE IF NOT EXISTS sales (
     id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, customer_name TEXT,
@@ -207,9 +226,11 @@ const pharmacyTables = async (db) => {
     medicine_id INTEGER NOT NULL, medicine_name TEXT NOT NULL,
     quantity INTEGER NOT NULL, unit_price REAL NOT NULL,
     cost_price REAL DEFAULT 0,
-    discount REAL DEFAULT 0, total REAL NOT NULL)`);
+    discount REAL DEFAULT 0, total REAL NOT NULL,
+    item_type TEXT DEFAULT 'medicine')`);
 
   await db.runAsync(`ALTER TABLE sale_items ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
+  await db.runAsync(`ALTER TABLE sale_items ADD COLUMN item_type TEXT DEFAULT 'medicine'`).catch(() => {});
 };
 
 const SCHEMA_MAP = {

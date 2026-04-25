@@ -15,7 +15,7 @@ const fmt = n => Number(n || 0).toFixed(2);
 const getCurrency = () => localStorage.getItem('inv_currency') || 'PKR';
 
 export default function Sales({ user }) {
-  const cfg = getConfig(user?.business_type);
+  const cfg = useMemo(() => getConfig(user?.business_type), [user?.business_type]);
   const ItemIcon = cfg.inventoryIcon;
   const themeColor = cfg.color;
   const [currency, setCurrency] = useState(getCurrency);
@@ -85,12 +85,15 @@ export default function Sales({ user }) {
 
   const filtered = useMemo(() => {
     const source = activeTab === 'spare_parts' ? spareParts : items;
+    const isRestaurant = user?.business_type === 'restaurant';
     return source.filter(t => {
       const mf = itemFilter === 'All' || t.type === itemFilter || t.category === itemFilter;
       const ms = !search || (activeTab === 'spare_parts' ? t.name : cfg.itemName(t)).toLowerCase().includes(search.toLowerCase()) || (t.barcode || '').toLowerCase().includes(search.toLowerCase());
-      return mf && ms && t.stock > 0;
+      // Restaurant: check available=1, others: check stock > 0
+      const inStock = isRestaurant ? (t.available === 1 || t.available === '1') : t.stock > 0;
+      return mf && ms && inStock;
     });
-  }, [items, spareParts, activeTab, itemFilter, search, cfg]);
+  }, [items, spareParts, activeTab, itemFilter, search, cfg, user]);
 
   const totalItemPages = useMemo(() => Math.ceil(filtered.length / ITEM_PAGE_SIZE), [filtered.length]);
   const itemPageData = useMemo(() => isMobile ? filtered : filtered.slice(itemPage * ITEM_PAGE_SIZE, (itemPage + 1) * ITEM_PAGE_SIZE), [filtered, isMobile, itemPage]);
@@ -98,17 +101,19 @@ export default function Sales({ user }) {
   useEffect(() => { setItemPage(0); }, [itemFilter, search]);
 
   const addToCart = useCallback((item) => {
-    if (item.stock === 0) return toast.error('Out of stock');
+    const isRestaurant = user?.business_type === 'restaurant';
+    if (!isRestaurant && item.stock === 0) return toast.error('Out of stock');
     const isSparePart = activeTab === 'spare_parts';
     const itemName = isSparePart ? item.name : cfg.itemName(item);
+
     setCart(prev => {
       const cartId = `${isSparePart ? 'sp' : 'ty'}_${item.id}`;
       const ex = prev.find(i => i.cart_id === cartId);
       if (ex) {
-        if (ex.quantity >= item.stock) { toast.error('Not enough stock'); return prev; }
+        if (!isRestaurant && ex.quantity >= item.stock) { toast.error('Not enough stock'); return prev; }
         return prev.map(i => i.cart_id === cartId ? { ...i, quantity: i.quantity + 1 } : i);
       }
-      return [...prev, { cart_id: cartId, tyre_id: item.id, tyre_name: itemName, unit_price: item.price, quantity: 1, discount: 0, stock: item.stock, item_type: isSparePart ? 'spare_part' : 'tyre' }];
+      return [...prev, { cart_id: cartId, tyre_id: item.id, tyre_name: itemName, unit_price: item.price, quantity: 1, discount: 0, stock: isRestaurant ? 9999 : item.stock, item_type: isSparePart ? 'spare_part' : 'tyre' }];
     });
     toast.success(`Added`, { duration: 700 });
   }, [cfg, activeTab]);
@@ -281,7 +286,10 @@ export default function Sales({ user }) {
                 <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 6 }}>{activeTab === 'spare_parts' ? (item.brand || item.category) : cfg.itemSubtitle(item)}</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontWeight: 800, color: themeColor, fontSize: isMobile ? 12 : 14 }}>{currency}{fmt(item.price)}</span>
-                  <span style={{ fontSize: 11, color: item.stock <= 5 ? '#ef4444' : '#9ca3af' }}>×{item.stock}</span>
+                  {user?.business_type === 'restaurant'
+                    ? <span style={{ fontSize: 11, color: '#9ca3af' }}>{item.size || ''}</span>
+                    : <span style={{ fontSize: 11, color: item.stock <= 5 ? '#ef4444' : '#9ca3af' }}>×{item.stock}</span>
+                  }
                 </div>
               </div>
             ))}
