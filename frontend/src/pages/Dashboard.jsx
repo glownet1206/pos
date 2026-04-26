@@ -284,34 +284,39 @@ export default function Dashboard({ user }) {
             const total = payments.reduce((a,p)=>a+Number(p.value||0),0);
             return (
               <>
-                <div style={{ position:'relative', width:'100%', height:200 }}>
-                  <PieChart width={200} height={200} style={{ margin:'0 auto' }}>
-                    <defs>
-                      {PIE_COLORS.map((c,i) => (
-                        <radialGradient key={i} id={`pg${i}`} cx="50%" cy="50%" r="50%">
-                          <stop offset="0%" stopColor={c} stopOpacity={1} />
-                          <stop offset="100%" stopColor={c} stopOpacity={0.75} />
-                        </radialGradient>
-                      ))}
-                    </defs>
-                    <Pie
-                      data={payments} cx={100} cy={100}
-                      innerRadius={58} outerRadius={85}
-                      paddingAngle={4} dataKey="value"
-                      startAngle={90} endAngle={-270}
-                      strokeWidth={0}
-                    >
-                      {payments.map((_, i) => <Cell key={i} fill={`url(#pg${i})`} />)}
-                    </Pie>
-                    <Tooltip
-                      formatter={(v, n) => [`${v} sales (${Math.round(Number(v)/total*100)}%)`, n]}
-                      contentStyle={{ borderRadius:10, border:'1px solid #e5e7eb', fontSize:12.5, fontWeight:600, boxShadow:'0 8px 24px rgba(0,0,0,0.1)' }}
-                    />
-                  </PieChart>
-                  {/* Center label */}
+                <div style={{ display:'flex', justifyContent:'center', alignItems:'center', position:'relative', margin:'12px 0' }}>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <defs>
+                        {PIE_COLORS.map((c,i) => (
+                          <radialGradient key={i} id={`pg2_${i}`} cx="50%" cy="50%" r="50%">
+                            <stop offset="0%" stopColor={c} stopOpacity={1} />
+                            <stop offset="100%" stopColor={c} stopOpacity={0.75} />
+                          </radialGradient>
+                        ))}
+                      </defs>
+                      <Pie
+                        data={payments}
+                        cx="50%" cy="50%"
+                        innerRadius={60} outerRadius={88}
+                        paddingAngle={4} dataKey="value"
+                        startAngle={90} endAngle={-270}
+                        strokeWidth={0}
+                        isAnimationActive={true}
+                      >
+                        {payments.map((_, i) => (
+                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(v, n) => [`${v} (${Math.round(Number(v)/total*100)}%)`, n]}
+                        contentStyle={{ borderRadius:10, border:'1px solid #e5e7eb', fontSize:12.5, fontWeight:600 }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
                   <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', textAlign:'center', pointerEvents:'none' }}>
-                    <div style={{ fontSize:24, fontWeight:900, color:'var(--gray-900)', lineHeight:1 }}>{total}</div>
-                    <div style={{ fontSize:11, fontWeight:600, color:'var(--gray-400)', marginTop:3 }}>Total Sales</div>
+                    <div style={{ fontSize:26, fontWeight:900, color:'var(--gray-900)', lineHeight:1 }}>{total}</div>
+                    <div style={{ fontSize:11, fontWeight:600, color:'var(--gray-400)', marginTop:2 }}>Sales</div>
                   </div>
                 </div>
                 <div style={{ display:'flex', flexDirection:'column', gap:8, marginTop:4 }}>
