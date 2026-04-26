@@ -74,6 +74,12 @@ export default function CarTypeSelect({ value, onChange, suggestions = CAR_SUGGE
             setOpen(true);
             setSearch('');
           }}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              setOpen(false);
+            }
+          }}
           placeholder={placeholder}
           style={{
             flex: 1, border: 'none', outline: 'none', background: 'none',
