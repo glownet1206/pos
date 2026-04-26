@@ -334,10 +334,6 @@ export default function Dashboard({ user }) {
             );
           })()}
         </div>
-              </>
-            );
-          })()}
-        </div>
 
 
         <div className="card" style={{ display:'flex', flexDirection:'column' }}>
