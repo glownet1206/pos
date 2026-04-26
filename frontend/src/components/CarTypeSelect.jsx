@@ -47,34 +47,55 @@ export default function CarTypeSelect({ value, onChange, suggestions = CAR_SUGGE
   const handleSelect = (val) => { onChange(val); setSearch(''); setOpen(false); };
   const handleClear = (e) => { e.stopPropagation(); onChange(''); setSearch(''); };
 
+  // Handle direct typing in the trigger box
+  const handleDirectInput = (e) => {
+    onChange(e.target.value);
+  };
+
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <div
-        onClick={handleOpen}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '8px 12px', borderRadius: 9,
-          border: `1.5px solid ${open ? '#f97316' : 'var(--gray-200)'}`,
-          background: 'white', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
-          color: value ? 'var(--gray-800)' : 'var(--gray-400)',
-          transition: 'border-color 0.15s', minHeight: 38, userSelect: 'none',
-        }}
-      >
-        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {value || placeholder}
-        </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center',
+        borderRadius: 9,
+        border: `1.5px solid ${open ? '#f97316' : 'var(--gray-200)'}`,
+        background: 'white', fontSize: 13, fontFamily: 'inherit',
+        transition: 'border-color 0.15s', minHeight: 38,
+      }}>
+        {/* Editable input for manual typing */}
+        <input
+          type="text"
+          value={value || ''}
+          onChange={handleDirectInput}
+          onFocus={() => {
+            if (ref.current) {
+              const rect = ref.current.getBoundingClientRect();
+              setDropUp(window.innerHeight - rect.bottom < 280);
+            }
+            setOpen(true);
+            setSearch('');
+          }}
+          placeholder={placeholder}
+          style={{
+            flex: 1, border: 'none', outline: 'none', background: 'none',
+            padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
+            color: value ? 'var(--gray-800)' : 'var(--gray-400)',
+          }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0, paddingRight: 8 }}>
           {value && (
             <span
               onClick={handleClear}
-              style={{ fontSize: 13, color: 'var(--gray-400)', padding: '0 4px', lineHeight: 1 }}
+              style={{ fontSize: 13, color: 'var(--gray-400)', padding: '0 4px', lineHeight: 1, cursor: 'pointer' }}
             >✕</span>
           )}
-          <MdExpandMore style={{
-            fontSize: 18, color: 'var(--gray-400)',
-            transform: open ? 'rotate(180deg)' : 'none',
-            transition: 'transform 0.15s',
-          }} />
+          <MdExpandMore
+            onClick={handleOpen}
+            style={{
+              fontSize: 18, color: 'var(--gray-400)', cursor: 'pointer',
+              transform: open ? 'rotate(180deg)' : 'none',
+              transition: 'transform 0.15s',
+            }}
+          />
         </div>
       </div>
 
@@ -97,7 +118,7 @@ export default function CarTypeSelect({ value, onChange, suggestions = CAR_SUGGE
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search..."
+                placeholder="Search cars..."
                 onClick={e => e.stopPropagation()}
                 style={{ border: 'none', background: 'none', outline: 'none', fontSize: 12.5, fontFamily: 'inherit', width: '100%', color: 'var(--gray-700)' }}
               />
@@ -117,6 +138,15 @@ export default function CarTypeSelect({ value, onChange, suggestions = CAR_SUGGE
             >
               None
             </div>
+            {/* Show custom typed value as first option if not in list */}
+            {value && !suggestions.includes(value) && (
+              <div
+                onClick={() => handleSelect(value)}
+                style={{ padding: '7px 13px', fontSize: 13, cursor: 'pointer', background: '#fff7ed', color: '#f97316', fontWeight: 700 }}
+              >
+                ✓ Use "{value}"
+              </div>
+            )}
             {filtered.length === 0 ? (
               <div style={{ padding: '10px 13px', fontSize: 12.5, color: 'var(--gray-400)', textAlign: 'center' }}>No results</div>
             ) : filtered.map(s => (
