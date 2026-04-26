@@ -1,14 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const { pool } = require('../db/database');
 const { requireAuth, requireActive } = require('./auth');
-const { masterDb } = require('../db/database');
-const path = require('path');
-const fs = require('fs');
 
 router.use(requireAuth, requireActive);
 
-const cfg = (bizType) => {
-  switch (bizType) {
+const cfg = (biz) => {
+  switch (biz) {
     case 'restaurant':
       return { salesTbl: 'orders', itemsTbl: 'order_items', itemNameCol: 'item_name', itemJoinCol: 'order_id' };
     case 'pharmacy':
@@ -20,34 +18,32 @@ const cfg = (bizType) => {
   }
 };
 
-// Returns a SQL CASE expression that resolves cost_price for a sale_item row.
-// For tyre_shop: checks tyres table first, then spare_parts table.
-// For others: checks their respective inventory table.
-const costExpr = (bizType, siAlias = 'si') => {
-  if (bizType === 'tyre_shop') {
+// Cost expression per business type
+const costExpr = (biz, siAlias = 'si') => {
+  if (biz === 'tyre_shop') {
     return `CASE
       WHEN ${siAlias}.cost_price > 0 THEN ${siAlias}.cost_price * ${siAlias}.quantity
       WHEN ${siAlias}.item_type = 'spare_part'
-        THEN COALESCE((SELECT sp.cost_price FROM spare_parts sp WHERE sp.id = ${siAlias}.tyre_id), 0) * ${siAlias}.quantity
-      ELSE COALESCE((SELECT t.cost_price FROM tyres t WHERE t.id = ${siAlias}.tyre_id), 0) * ${siAlias}.quantity
+        THEN COALESCE((SELECT sp.cost_price FROM spare_parts sp WHERE sp.id = ${siAlias}.tyre_id AND sp.user_id = ${siAlias}.user_id), 0) * ${siAlias}.quantity
+      ELSE COALESCE((SELECT t.cost_price FROM tyres t WHERE t.id = ${siAlias}.tyre_id AND t.user_id = ${siAlias}.user_id), 0) * ${siAlias}.quantity
     END`;
   }
-  if (bizType === 'pharmacy') {
+  if (biz === 'pharmacy') {
     return `CASE
       WHEN ${siAlias}.cost_price > 0 THEN ${siAlias}.cost_price * ${siAlias}.quantity
-      ELSE COALESCE((SELECT m.cost FROM medicines m WHERE m.id = ${siAlias}.medicine_id), 0) * ${siAlias}.quantity
+      ELSE COALESCE((SELECT m.cost FROM medicines m WHERE m.id = ${siAlias}.medicine_id AND m.user_id = ${siAlias}.user_id), 0) * ${siAlias}.quantity
     END`;
   }
-  if (bizType === 'general_store') {
+  if (biz === 'general_store') {
     return `CASE
       WHEN ${siAlias}.cost_price > 0 THEN ${siAlias}.cost_price * ${siAlias}.quantity
-      ELSE COALESCE((SELECT p.cost FROM products p WHERE p.id = ${siAlias}.product_id), 0) * ${siAlias}.quantity
+      ELSE COALESCE((SELECT p.cost FROM products p WHERE p.id = ${siAlias}.product_id AND p.user_id = ${siAlias}.user_id), 0) * ${siAlias}.quantity
     END`;
   }
-  if (bizType === 'restaurant') {
+  if (biz === 'restaurant') {
     return `CASE
       WHEN ${siAlias}.cost_price > 0 THEN ${siAlias}.cost_price * ${siAlias}.quantity
-      ELSE COALESCE((SELECT m.cost FROM menu_items m WHERE m.id = ${siAlias}.item_id), 0) * ${siAlias}.quantity
+      ELSE COALESCE((SELECT m.cost FROM menu_items m WHERE m.id = ${siAlias}.item_id AND m.user_id = ${siAlias}.user_id), 0) * ${siAlias}.quantity
     END`;
   }
   return `COALESCE(${siAlias}.cost_price, 0) * ${siAlias}.quantity`;
@@ -55,138 +51,148 @@ const costExpr = (bizType, siAlias = 'si') => {
 
 router.get('/sales', async (req, res) => {
   try {
-    const db = req.db;
-    const { salesTbl, itemsTbl, itemNameCol, itemJoinCol } = cfg(req.user.business_type);
+    const uid = req.user.id;
+    const biz = req.user.business_type;
+    const { salesTbl, itemsTbl, itemNameCol, itemJoinCol } = cfg(biz);
     const fromDate = req.query.from || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
     const toDate   = req.query.to   || new Date().toISOString().split('T')[0];
 
-    const summary = await db.getAsync(
-      `SELECT COUNT(*) as totalSales, COALESCE(SUM(total),0) as revenue,
-       COALESCE(SUM(discount),0) as totalDiscount, COALESCE(SUM(tax),0) as totalTax
-       FROM ${salesTbl} WHERE DATE(created_at) BETWEEN ? AND ? AND status='completed'`,
-      [fromDate, toDate]
-    );
+    const summary = (await pool.query(
+      `SELECT COUNT(*) as totalsales, COALESCE(SUM(total),0) as revenue,
+       COALESCE(SUM(discount),0) as totaldiscount, COALESCE(SUM(tax),0) as totaltax
+       FROM ${salesTbl} WHERE user_id=$1 AND created_at::date BETWEEN $2 AND $3 AND status='completed'`,
+      [uid, fromDate, toDate]
+    )).rows[0];
 
-    // Calculate actual cost and profit — handles tyres + spare_parts both
     let totalCost = 0, totalProfit = 0;
     try {
-      const expr = costExpr(req.user.business_type);
-      const costData = await db.getAsync(
-        `SELECT COALESCE(SUM(${expr}), 0) as totalCost
+      const expr = costExpr(biz);
+      const costData = (await pool.query(
+        `SELECT COALESCE(SUM(${expr}), 0) as totalcost
          FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
-         WHERE DATE(s.created_at) BETWEEN ? AND ? AND s.status='completed'`,
-        [fromDate, toDate]
-      );
-      totalCost = parseFloat(costData.totalCost || 0);
+         WHERE s.user_id=$1 AND s.created_at::date BETWEEN $2 AND $3 AND s.status='completed'`,
+        [uid, fromDate, toDate]
+      )).rows[0];
+      totalCost   = parseFloat(costData.totalcost || 0);
       totalProfit = parseFloat(summary.revenue || 0) - totalCost;
     } catch (_) {}
 
-    const daily = await db.allAsync(
-      `SELECT DATE(created_at) as date, COUNT(*) as sales, SUM(total) as revenue
-       FROM ${salesTbl} WHERE DATE(created_at) BETWEEN ? AND ? AND status='completed'
-       GROUP BY DATE(created_at) ORDER BY date`,
-      [fromDate, toDate]
-    );
+    const daily = (await pool.query(
+      `SELECT created_at::date as date, COUNT(*) as sales, SUM(total) as revenue
+       FROM ${salesTbl} WHERE user_id=$1 AND created_at::date BETWEEN $2 AND $3 AND status='completed'
+       GROUP BY created_at::date ORDER BY date`,
+      [uid, fromDate, toDate]
+    )).rows;
 
-    // Add cost and profit per day — handles tyres + spare_parts both
-    const expr2 = costExpr(req.user.business_type);
+    const expr2 = costExpr(biz);
     for (const day of daily) {
       try {
-        const dayCost = await db.getAsync(
+        const dayCost = (await pool.query(
           `SELECT COALESCE(SUM(${expr2}), 0) as cost
            FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
-           WHERE DATE(s.created_at)=? AND s.status='completed'`,
-          [day.date]
-        );
-        day.cost = parseFloat(dayCost.cost || 0);
+           WHERE s.user_id=$1 AND s.created_at::date=$2 AND s.status='completed'`,
+          [uid, day.date]
+        )).rows[0];
+        day.cost   = parseFloat(dayCost.cost || 0);
         day.profit = parseFloat(day.revenue || 0) - day.cost;
       } catch (_) {
-        day.cost = 0;
+        day.cost   = 0;
         day.profit = parseFloat(day.revenue || 0);
       }
     }
 
-    const topItems = await db.allAsync(
+    const topItems = (await pool.query(
       `SELECT si.${itemNameCol} as name, SUM(si.quantity) as qty, SUM(si.total) as revenue
        FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
-       WHERE DATE(s.created_at) BETWEEN ? AND ? AND s.status='completed'
+       WHERE s.user_id=$1 AND s.created_at::date BETWEEN $2 AND $3 AND s.status='completed'
        GROUP BY si.${itemNameCol} ORDER BY qty DESC LIMIT 5`,
-      [fromDate, toDate]
-    );
-    res.json({ summary: { ...summary, totalCost, totalProfit }, daily, topTyres: topItems });
+      [uid, fromDate, toDate]
+    )).rows;
+
+    res.json({
+      summary: {
+        totalSales: parseInt(summary.totalsales),
+        revenue: parseFloat(summary.revenue),
+        totalDiscount: parseFloat(summary.totaldiscount),
+        totalTax: parseFloat(summary.totaltax),
+        totalCost, totalProfit
+      },
+      daily,
+      topTyres: topItems
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/inventory', async (req, res) => {
   try {
-    const db = req.db;
+    const uid = req.user.id;
     const biz = req.user.business_type;
-    let tbl = 'products';
-    if (biz === 'tyre_shop') tbl = 'tyres';
-    else if (biz === 'pharmacy') tbl = 'medicines';
-    else if (biz === 'restaurant') tbl = 'menu_items';
+    const tbl = biz === 'tyre_shop' ? 'tyres' : biz === 'pharmacy' ? 'medicines' : biz === 'restaurant' ? 'menu_items' : 'products';
 
-    const all = await db.allAsync(`SELECT * FROM ${tbl} ORDER BY id`).catch(() => []);
+    const all = (await pool.query(`SELECT * FROM ${tbl} WHERE user_id=$1 ORDER BY id`, [uid])).rows;
 
     let lowStock = [], outOfStock = [];
     if (biz === 'restaurant') {
-      lowStock   = [];
-      outOfStock = await db.allAsync(`SELECT * FROM ${tbl} WHERE available = 0`).catch(() => []);
+      outOfStock = (await pool.query(`SELECT * FROM ${tbl} WHERE user_id=$1 AND available=0`, [uid])).rows;
     } else if (biz === 'tyre_shop') {
-      lowStock   = await db.allAsync(`SELECT * FROM ${tbl} WHERE stock <= COALESCE(low_stock_threshold, 5) AND stock > 0`).catch(() => []);
-      outOfStock = await db.allAsync(`SELECT * FROM ${tbl} WHERE stock = 0`).catch(() => []);
+      lowStock   = (await pool.query(`SELECT * FROM ${tbl} WHERE user_id=$1 AND stock <= COALESCE(low_stock_threshold,5) AND stock > 0`, [uid])).rows;
+      outOfStock = (await pool.query(`SELECT * FROM ${tbl} WHERE user_id=$1 AND stock = 0`, [uid])).rows;
     } else {
-      lowStock   = await db.allAsync(`SELECT * FROM ${tbl} WHERE stock <= COALESCE(low_stock_threshold, 10) AND stock > 0`).catch(() => []);
-      outOfStock = await db.allAsync(`SELECT * FROM ${tbl} WHERE stock = 0`).catch(() => []);
+      lowStock   = (await pool.query(`SELECT * FROM ${tbl} WHERE user_id=$1 AND stock <= COALESCE(low_stock_threshold,10) AND stock > 0`, [uid])).rows;
+      outOfStock = (await pool.query(`SELECT * FROM ${tbl} WHERE user_id=$1 AND stock = 0`, [uid])).rows;
     }
 
     const totalValue = biz === 'restaurant'
-      ? await db.getAsync(`SELECT COALESCE(SUM(price),0) as value FROM ${tbl}`).catch(() => ({ value: 0 }))
-      : await db.getAsync(`SELECT COALESCE(SUM(price*stock),0) as value FROM ${tbl}`).catch(() => ({ value: 0 }));
-    res.json({ all, lowStock, outOfStock, totalValue: totalValue.value });
+      ? (await pool.query(`SELECT COALESCE(SUM(price),0) as value FROM ${tbl} WHERE user_id=$1`, [uid])).rows[0]
+      : (await pool.query(`SELECT COALESCE(SUM(price*stock),0) as value FROM ${tbl} WHERE user_id=$1`, [uid])).rows[0];
+
+    res.json({ all, lowStock, outOfStock, totalValue: parseFloat(totalValue.value) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/chart/weekly', async (req, res) => {
   try {
-    const db = req.db;
-    const { salesTbl, itemsTbl, itemJoinCol } = cfg(req.user.business_type);
+    const uid = req.user.id;
+    const biz = req.user.business_type;
+    const { salesTbl, itemsTbl, itemJoinCol } = cfg(biz);
     const days = parseInt(req.query.days) || 14;
-    const rows = await db.allAsync(
-      `SELECT DATE(created_at) as date, COUNT(*) as sales, COALESCE(SUM(total),0) as revenue
-       FROM ${salesTbl} WHERE DATE(created_at) >= DATE('now','-${days - 1} days') AND status='completed'
-       GROUP BY DATE(created_at) ORDER BY date`
-    );
 
-    // Get cost per day — handles tyres + spare_parts both
+    const rows = (await pool.query(
+      `SELECT created_at::date as date, COUNT(*) as sales, COALESCE(SUM(total),0) as revenue
+       FROM ${salesTbl}
+       WHERE user_id=$1 AND created_at::date >= CURRENT_DATE - INTERVAL '${days - 1} days' AND status='completed'
+       GROUP BY created_at::date ORDER BY date`,
+      [uid]
+    )).rows;
+
     let costRows = [];
     try {
-      const expr = costExpr(req.user.business_type);
-      costRows = await db.allAsync(
-        `SELECT DATE(s.created_at) as date, COALESCE(SUM(${expr}), 0) as cost
+      const expr = costExpr(biz);
+      costRows = (await pool.query(
+        `SELECT s.created_at::date as date, COALESCE(SUM(${expr}), 0) as cost
          FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
-         WHERE DATE(s.created_at) >= DATE('now','-${days - 1} days') AND s.status='completed'
-         GROUP BY DATE(s.created_at)`
-      );
+         WHERE s.user_id=$1 AND s.created_at::date >= CURRENT_DATE - INTERVAL '${days - 1} days' AND s.status='completed'
+         GROUP BY s.created_at::date`,
+        [uid]
+      )).rows;
     } catch (_) {}
 
     const result = [];
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const pad = n => String(n).padStart(2, '0');
-      const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-      const found = rows.find(r => r.date === key);
-      const costFound = costRows.find(r => r.date === key);
-      const revenue = parseFloat((found ? found.revenue : 0).toFixed(2));
-      const cost = parseFloat((costFound ? costFound.cost : 0).toFixed(2));
+      const key = d.toISOString().split('T')[0];
+      const found     = rows.find(r => r.date && r.date.toISOString ? r.date.toISOString().split('T')[0] === key : String(r.date) === key);
+      const costFound = costRows.find(r => r.date && r.date.toISOString ? r.date.toISOString().split('T')[0] === key : String(r.date) === key);
+      const revenue = parseFloat((found ? found.revenue : 0));
+      const cost    = parseFloat((costFound ? costFound.cost : 0));
       result.push({
         date: key,
         day: d.toLocaleDateString('en-US', { weekday: 'short' }),
-        sales: found ? found.sales : 0,
-        revenue,
-        cost,
-        profit: parseFloat((revenue - cost).toFixed(2)),
+        sales: found ? parseInt(found.sales) : 0,
+        revenue: parseFloat(revenue.toFixed(2)),
+        cost:    parseFloat(cost.toFixed(2)),
+        profit:  parseFloat((revenue - cost).toFixed(2)),
       });
     }
     res.json(result);
@@ -195,30 +201,30 @@ router.get('/chart/weekly', async (req, res) => {
 
 router.get('/chart/payments', async (req, res) => {
   try {
+    const uid = req.user.id;
     const { salesTbl } = cfg(req.user.business_type);
-    const rows = await req.db.allAsync(
-      `SELECT payment_method as name, COUNT(*) as value FROM ${salesTbl} WHERE status='completed' GROUP BY payment_method`
-    );
+    const rows = (await pool.query(
+      `SELECT payment_method as name, COUNT(*) as value FROM ${salesTbl} WHERE user_id=$1 AND status='completed' GROUP BY payment_method`,
+      [uid]
+    )).rows;
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/db-stats', async (req, res) => {
   try {
-    const db = req.db;
-    const { salesTbl } = cfg(req.user.business_type);
-    const dbPath = path.join(__dirname, `../db/tenants/user_${req.user.id}.db`);
-    let sizeBytes = 0;
-    try { sizeBytes = fs.statSync(dbPath).size; } catch (_) {}
+    const uid = req.user.id;
+    const biz = req.user.business_type;
+    const { salesTbl } = cfg(biz);
 
-    const totalSales     = await db.getAsync(`SELECT COUNT(*) as c FROM ${salesTbl}`).catch(() => ({ c: 0 }));
-    const totalCustomers = await db.getAsync('SELECT COUNT(*) as c FROM customers').catch(() => ({ c: 0 }));
-    const revenue        = await db.getAsync(`SELECT COALESCE(SUM(total),0) as v FROM ${salesTbl} WHERE status='completed'`).catch(() => ({ v: 0 }));
+    const totalSales     = (await pool.query(`SELECT COUNT(*) as c FROM ${salesTbl} WHERE user_id=$1`, [uid])).rows[0];
+    const totalCustomers = (await pool.query('SELECT COUNT(*) as c FROM customers WHERE user_id=$1', [uid])).rows[0];
+    const revenue        = (await pool.query(`SELECT COALESCE(SUM(total),0) as v FROM ${salesTbl} WHERE user_id=$1 AND status='completed'`, [uid])).rows[0];
 
     res.json({
-      sizeBytes, dbSizeKB: parseFloat((sizeBytes / 1024).toFixed(2)),
-      dbSizeMB: parseFloat((sizeBytes / (1024 * 1024)).toFixed(3)),
-      totalSales: totalSales.c, totalCustomers: totalCustomers.c,
+      sizeBytes: 0, dbSizeKB: 0, dbSizeMB: 0,
+      totalSales: parseInt(totalSales.c),
+      totalCustomers: parseInt(totalCustomers.c),
       totalRevenue: parseFloat(revenue.v).toFixed(2),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -226,72 +232,68 @@ router.get('/db-stats', async (req, res) => {
 
 router.get('/yearly', async (req, res) => {
   try {
-    const db = req.db;
+    const uid = req.user.id;
     const biz = req.user.business_type;
     const { salesTbl, itemsTbl, itemJoinCol } = cfg(biz);
 
-    const years = await db.allAsync(
-      `SELECT strftime('%Y', created_at) as year, COUNT(*) as totalSales,
-       COALESCE(SUM(total),0) as revenue, COALESCE(SUM(discount),0) as totalDiscount,
-       COALESCE(SUM(tax),0) as totalTax
-       FROM ${salesTbl} WHERE status='completed' GROUP BY year ORDER BY year DESC`
-    );
+    const years = (await pool.query(
+      `SELECT to_char(created_at,'YYYY') as year, COUNT(*) as totalsales,
+       COALESCE(SUM(total),0) as revenue, COALESCE(SUM(discount),0) as totaldiscount,
+       COALESCE(SUM(tax),0) as totaltax
+       FROM ${salesTbl} WHERE user_id=$1 AND status='completed' GROUP BY year ORDER BY year DESC`,
+      [uid]
+    )).rows;
 
     for (const y of years) {
-      const units = await db.getAsync(
+      const units = (await pool.query(
         `SELECT COALESCE(SUM(si.quantity),0) as u FROM ${itemsTbl} si
          JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
-         WHERE strftime('%Y', s.created_at)=? AND s.status='completed'`, [y.year]
-      ).catch(() => ({ u: 0 }));
-      y.unitsSold = units.u;
+         WHERE s.user_id=$1 AND to_char(s.created_at,'YYYY')=$2 AND s.status='completed'`,
+        [uid, y.year]
+      )).rows[0];
+      y.unitsSold = parseInt(units.u);
+      y.totalSales = parseInt(y.totalsales);
+      y.revenue = parseFloat(y.revenue);
 
-      // Calculate actual profit using costExpr (handles all business types + fallback to inventory)
       try {
         const expr = costExpr(biz);
-        const costData = await db.getAsync(
-          `SELECT COALESCE(SUM(${expr}), 0) as totalCost
+        const costData = (await pool.query(
+          `SELECT COALESCE(SUM(${expr}), 0) as totalcost
            FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
-           WHERE strftime('%Y', s.created_at)=? AND s.status='completed'`, [y.year]
-        );
-        const totalCost = parseFloat(costData.totalCost || 0);
-        y.totalCost = totalCost;
-        y.profit = Math.round(y.revenue - totalCost);
-      } catch (_) {
-        y.profit = 0;
-        y.totalCost = 0;
-      }
+           WHERE s.user_id=$1 AND to_char(s.created_at,'YYYY')=$2 AND s.status='completed'`,
+          [uid, y.year]
+        )).rows[0];
+        y.totalCost = parseFloat(costData.totalcost || 0);
+        y.profit    = Math.round(y.revenue - y.totalCost);
+      } catch (_) { y.profit = 0; y.totalCost = 0; }
     }
 
-    let invTbl = biz === 'tyre_shop' ? 'tyres' : biz === 'pharmacy' ? 'medicines' : biz === 'restaurant' ? 'menu_items' : 'products';
+    const invTbl = biz === 'tyre_shop' ? 'tyres' : biz === 'pharmacy' ? 'medicines' : biz === 'restaurant' ? 'menu_items' : 'products';
     let invStats;
     if (biz === 'restaurant') {
-      invStats = await db.getAsync(
-        `SELECT COUNT(*) as total, COUNT(*) as totalStock, COALESCE(SUM(price),0) as value FROM ${invTbl} WHERE available=1`
-      ).catch(() => ({ total: 0, totalStock: 0, value: 0 }));
+      invStats = (await pool.query(`SELECT COUNT(*) as total, COUNT(*) as totalstock, COALESCE(SUM(price),0) as value FROM ${invTbl} WHERE user_id=$1 AND available=1`, [uid])).rows[0];
     } else {
-      invStats = await db.getAsync(
-        `SELECT COUNT(*) as total, COALESCE(SUM(stock),0) as totalStock, COALESCE(SUM(price*stock),0) as value FROM ${invTbl}`
-      ).catch(() => ({ total: 0, totalStock: 0, value: 0 }));
+      invStats = (await pool.query(`SELECT COUNT(*) as total, COALESCE(SUM(stock),0) as totalstock, COALESCE(SUM(price*stock),0) as value FROM ${invTbl} WHERE user_id=$1`, [uid])).rows[0];
     }
 
     res.json({
       yearly: years,
-      totalProducts: invStats.total,
-      currentStock: invStats.totalStock,
-      inventoryValue: invStats.value,
+      totalProducts: parseInt(invStats.total),
+      currentStock:  parseInt(invStats.totalstock),
+      inventoryValue: parseFloat(invStats.value),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/notifications', async (req, res) => {
   try {
-    const db = req.db;
-    const { salesTbl } = cfg(req.user.business_type);
+    const uid = req.user.id;
     const biz = req.user.business_type;
+    const { salesTbl } = cfg(biz);
     const notifs = [];
     const today = new Date().toISOString().split('T')[0];
 
-    const user = await masterDb.getAsync('SELECT plan, expires_at FROM users WHERE id=?', [req.user.id]);
+    const user = (await pool.query('SELECT plan, expires_at FROM users WHERE id=$1', [uid])).rows[0];
     if (user && user.plan === 'monthly' && user.expires_at) {
       const days = Math.ceil((new Date(user.expires_at) - new Date()) / 86400000);
       if (days <= 7 && days >= 0) {
@@ -304,24 +306,25 @@ router.get('/notifications', async (req, res) => {
       }
     }
 
-    const todaySales = await db.getAsync(
-      `SELECT COUNT(*) as c, COALESCE(SUM(total),0) as rev FROM ${salesTbl} WHERE DATE(created_at)=? AND status='completed'`, [today]
-    ).catch(() => null);
+    const todaySales = (await pool.query(
+      `SELECT COUNT(*) as c, COALESCE(SUM(total),0) as rev FROM ${salesTbl} WHERE user_id=$1 AND created_at::date=$2 AND status='completed'`,
+      [uid, today]
+    )).rows[0];
 
-    let invTbl = biz === 'tyre_shop' ? 'tyres' : biz === 'pharmacy' ? 'medicines' : biz === 'restaurant' ? 'menu_items' : 'products';
+    const invTbl = biz === 'tyre_shop' ? 'tyres' : biz === 'pharmacy' ? 'medicines' : biz === 'restaurant' ? 'menu_items' : 'products';
     try {
-      let lowStock = [], outOfStock = [];
       if (biz === 'restaurant') {
-        outOfStock = await db.allAsync(`SELECT * FROM ${invTbl} WHERE available = 0`);
+        const outOfStock = (await pool.query(`SELECT * FROM ${invTbl} WHERE user_id=$1 AND available=0`, [uid])).rows;
+        outOfStock.forEach(t => notifs.push({ id: 'oos-' + t.id, type: 'danger', title: 'Unavailable Item', msg: t.name }));
       } else {
-        lowStock   = await db.allAsync(`SELECT * FROM ${invTbl} WHERE stock <= COALESCE(low_stock_threshold, 10) AND stock > 0`);
-        outOfStock = await db.allAsync(`SELECT * FROM ${invTbl} WHERE stock = 0`);
+        const lowStock   = (await pool.query(`SELECT * FROM ${invTbl} WHERE user_id=$1 AND stock <= COALESCE(low_stock_threshold,10) AND stock > 0`, [uid])).rows;
+        const outOfStock = (await pool.query(`SELECT * FROM ${invTbl} WHERE user_id=$1 AND stock = 0`, [uid])).rows;
+        outOfStock.forEach(t => notifs.push({ id: 'oos-' + t.id, type: 'danger',  title: 'Out of Stock', msg: t.name || `${t.brand} ${t.model}` }));
+        lowStock.forEach(t   => notifs.push({ id: 'low-' + t.id, type: 'warning', title: 'Low Stock',    msg: `${t.name || `${t.brand} ${t.model}`} — ${t.stock} left` }));
       }
-      outOfStock.forEach(t => notifs.push({ id: 'oos-' + t.id, type: 'danger',  title: biz === 'restaurant' ? 'Unavailable Item' : 'Out of Stock', msg: t.name || `${t.brand} ${t.model}` }));
-      lowStock.forEach(t   => notifs.push({ id: 'low-' + t.id, type: 'warning', title: 'Low Stock', msg: `${t.name || `${t.brand} ${t.model}`} — ${t.stock} left` }));
     } catch (_) {}
 
-    if (todaySales && todaySales.c > 0)
+    if (todaySales && parseInt(todaySales.c) > 0)
       notifs.push({ id: 'today-sales', type: 'success', title: "Today's Sales", msg: `${todaySales.c} sales · Rs.${parseFloat(todaySales.rev).toFixed(2)}` });
 
     res.json(notifs);

@@ -1,264 +1,379 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs');
+const { Pool } = require('pg');
 
-const addAsync = (db) => {
-  db.runAsync = (sql, p = []) => new Promise((res, rej) => db.run(sql, p, function(err) { err ? rej(err) : res(this); }));
-  db.getAsync = (sql, p = []) => new Promise((res, rej) => db.get(sql, p, (err, row) => err ? rej(err) : res(row)));
-  db.allAsync = (sql, p = []) => new Promise((res, rej) => db.all(sql, p, (err, rows) => err ? rej(err) : res(rows)));
-  return db;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('neon.tech')
+    ? { rejectUnauthorized: false }
+    : process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+});
+
+// Helper: run query and return rows
+pool.query_ = async (sql, params = []) => {
+  const res = await pool.query(sql, params);
+  return res.rows;
 };
 
-const masterDb = addAsync(new sqlite3.Database(path.join(__dirname, 'master.db')));
+// Helper: get single row
+pool.get_ = async (sql, params = []) => {
+  const res = await pool.query(sql, params);
+  return res.rows[0] || null;
+};
 
-const initMaster = async () => {
-  await masterDb.runAsync('PRAGMA journal_mode = WAL');
+// Helper: run INSERT/UPDATE/DELETE, return result
+pool.run_ = async (sql, params = []) => {
+  const res = await pool.query(sql, params);
+  return res;
+};
 
-  await masterDb.runAsync(`CREATE TABLE IF NOT EXISTS users (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    name          TEXT NOT NULL,
-    business_name TEXT,
-    business_type TEXT NOT NULL DEFAULT 'general_store',
-    email         TEXT NOT NULL UNIQUE,
-    password      TEXT NOT NULL,
-    plan          TEXT NOT NULL DEFAULT 'monthly',  -- 'monthly' | 'lifetime'
-    status        TEXT NOT NULL DEFAULT 'pending',  -- 'active' | 'pending' | 'suspended'
-    expires_at    DATETIME,
-    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
+// ─── MASTER DB HELPERS ───────────────────────────────────────────────────────
+const masterDb = {
+  getAsync:  (sql, p) => pool.get_(convertSql(sql), convertParams(p)),
+  allAsync:  (sql, p) => pool.query_(convertSql(sql), convertParams(p)),
+  runAsync:  (sql, p) => pool.run_(convertSql(sql), convertParams(p)),
+};
 
-  await masterDb.runAsync(`CREATE TABLE IF NOT EXISTS payments (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id      INTEGER NOT NULL,
-    amount       REAL NOT NULL,
-    note         TEXT,
-    activated_by INTEGER,
-    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
+// ─── TENANT DB HELPERS ───────────────────────────────────────────────────────
+// All tenant queries get an extra user_id filter injected via getTenantDb
+const makeTenantDb = (userId) => ({
+  userId,
+  getAsync:  (sql, p) => pool.get_(convertSql(sql), convertParams(p)),
+  allAsync:  (sql, p) => pool.query_(convertSql(sql), convertParams(p)),
+  runAsync:  (sql, p) => pool.run_(convertSql(sql), convertParams(p)),
+});
 
-  await masterDb.runAsync(`CREATE TABLE IF NOT EXISTS admins (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT NOT NULL,
-    email      TEXT NOT NULL UNIQUE,
-    password   TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
+// ─── SQL CONVERSION: SQLite → PostgreSQL ─────────────────────────────────────
+function convertSql(sql) {
+  // Replace ? placeholders with $1, $2, ...
+  let i = 0;
+  sql = sql.replace(/\?/g, () => `$${++i}`);
 
-  const adminCount = await masterDb.getAsync('SELECT COUNT(*) as c FROM admins');
-  if (adminCount.c === 0) {
-    await masterDb.runAsync('INSERT INTO admins (name,email,password) VALUES (?,?,?)',
-      ['Super Admin', 'ahsanraza@PrimePOS.com', 'AhsanRaza@1630']);
-    console.log('Default admin created: admin@posplatform.com / admin123');
+  // SQLite date functions → PostgreSQL
+  sql = sql.replace(/DATE\('now'\)/gi, "CURRENT_DATE");
+  sql = sql.replace(/DATE\('now',\s*'([^']+)'\)/gi, (_, interval) => {
+    const m = interval.match(/([+-]\d+)\s*(day|month|year)s?/i);
+    if (m) return `(CURRENT_DATE + INTERVAL '${m[1]} ${m[2]}')`;
+    return 'CURRENT_DATE';
+  });
+  sql = sql.replace(/datetime\('now','localtime'\)/gi, "NOW()");
+  sql = sql.replace(/datetime\('now'\)/gi, "NOW()");
+
+  // strftime('%Y-%m', col) → to_char(col, 'YYYY-MM')
+  sql = sql.replace(/strftime\('%Y-%m',\s*([^)]+)\)/gi, "to_char($1, 'YYYY-MM')");
+  // strftime('%Y', col) → to_char(col, 'YYYY')
+  sql = sql.replace(/strftime\('%Y',\s*([^)]+)\)/gi, "to_char($1, 'YYYY')");
+
+  // DATE(col) → col::date
+  sql = sql.replace(/DATE\(([^)]+)\)/gi, "$1::date");
+
+  // AUTOINCREMENT → SERIAL (handled in schema, not needed here)
+  // INTEGER PRIMARY KEY AUTOINCREMENT → handled in initDb
+
+  // COALESCE stays same
+  // BETWEEN stays same
+
+  return sql;
+}
+
+function convertParams(p = []) {
+  return p.map(v => v === undefined ? null : v);
+}
+
+// ─── SCHEMA INIT ─────────────────────────────────────────────────────────────
+const initDb = async () => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // ── MASTER TABLES ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS admins (
+        id         SERIAL PRIMARY KEY,
+        name       TEXT NOT NULL,
+        email      TEXT NOT NULL UNIQUE,
+        password   TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id            SERIAL PRIMARY KEY,
+        name          TEXT NOT NULL,
+        business_name TEXT,
+        business_type TEXT NOT NULL DEFAULT 'general_store',
+        email         TEXT NOT NULL UNIQUE,
+        password      TEXT NOT NULL,
+        plan          TEXT NOT NULL DEFAULT 'monthly',
+        status        TEXT NOT NULL DEFAULT 'pending',
+        expires_at    TIMESTAMPTZ,
+        phone         TEXT,
+        address       TEXT,
+        created_at    TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS payments (
+        id           SERIAL PRIMARY KEY,
+        user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        amount       NUMERIC NOT NULL,
+        note         TEXT,
+        activated_by INTEGER,
+        created_at   TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    // ── TENANT TABLES (all with user_id) ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS customers (
+        id         SERIAL PRIMARY KEY,
+        user_id    INTEGER NOT NULL,
+        name       TEXT NOT NULL,
+        phone      TEXT,
+        email      TEXT,
+        address    TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id         SERIAL PRIMARY KEY,
+        user_id    INTEGER NOT NULL,
+        name       TEXT NOT NULL,
+        phone      TEXT,
+        email      TEXT,
+        address    TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS supplier_orders (
+        id            SERIAL PRIMARY KEY,
+        user_id       INTEGER NOT NULL,
+        supplier_id   INTEGER,
+        supplier_name TEXT,
+        total         NUMERIC DEFAULT 0,
+        status        TEXT DEFAULT 'pending',
+        notes         TEXT,
+        created_at    TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS supplier_order_items (
+        id         SERIAL PRIMARY KEY,
+        user_id    INTEGER NOT NULL,
+        order_id   INTEGER NOT NULL,
+        item_id    INTEGER,
+        item_name  TEXT NOT NULL,
+        quantity   INTEGER NOT NULL,
+        unit_price NUMERIC NOT NULL,
+        total      NUMERIC NOT NULL
+      )
+    `);
+
+    // ── TYRE SHOP ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tyres (
+        id                  SERIAL PRIMARY KEY,
+        user_id             INTEGER NOT NULL,
+        brand               TEXT NOT NULL,
+        model               TEXT NOT NULL,
+        size                TEXT NOT NULL,
+        type                TEXT DEFAULT 'Passenger',
+        price               NUMERIC NOT NULL,
+        cost_price          NUMERIC DEFAULT 0,
+        car_type            TEXT DEFAULT '',
+        stock               INTEGER DEFAULT 0,
+        low_stock_threshold INTEGER DEFAULT 10,
+        barcode             TEXT,
+        created_at          TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tyres_barcode
+      ON tyres(user_id, barcode)
+      WHERE barcode IS NOT NULL AND barcode != ''
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS spare_parts (
+        id                  SERIAL PRIMARY KEY,
+        user_id             INTEGER NOT NULL,
+        name                TEXT NOT NULL,
+        category            TEXT DEFAULT 'General',
+        brand               TEXT,
+        price               NUMERIC NOT NULL,
+        cost_price          NUMERIC DEFAULT 0,
+        car_type            TEXT DEFAULT '',
+        stock               INTEGER DEFAULT 0,
+        low_stock_threshold INTEGER DEFAULT 5,
+        barcode             TEXT,
+        created_at          TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_spare_parts_barcode
+      ON spare_parts(user_id, barcode)
+      WHERE barcode IS NOT NULL AND barcode != ''
+    `);
+
+    // ── RESTAURANT ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS menu_items (
+        id         SERIAL PRIMARY KEY,
+        user_id    INTEGER NOT NULL,
+        name       TEXT NOT NULL,
+        category   TEXT,
+        size       TEXT DEFAULT 'Regular',
+        price      NUMERIC NOT NULL,
+        cost       NUMERIC DEFAULT 0,
+        available  INTEGER DEFAULT 1,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id             SERIAL PRIMARY KEY,
+        user_id        INTEGER NOT NULL,
+        table_id       INTEGER,
+        customer_name  TEXT,
+        subtotal       NUMERIC NOT NULL,
+        discount       NUMERIC DEFAULT 0,
+        tax            NUMERIC DEFAULT 0,
+        total          NUMERIC NOT NULL,
+        payment_method TEXT DEFAULT 'Cash',
+        status         TEXT DEFAULT 'completed',
+        notes          TEXT,
+        created_at     TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS order_items (
+        id             SERIAL PRIMARY KEY,
+        user_id        INTEGER NOT NULL,
+        order_id       INTEGER NOT NULL,
+        item_id        INTEGER NOT NULL,
+        item_name      TEXT NOT NULL,
+        quantity       INTEGER NOT NULL,
+        unit_price     NUMERIC NOT NULL,
+        cost_price     NUMERIC DEFAULT 0,
+        discount       NUMERIC DEFAULT 0,
+        total          NUMERIC NOT NULL
+      )
+    `);
+
+    // ── GENERAL STORE ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS products (
+        id                  SERIAL PRIMARY KEY,
+        user_id             INTEGER NOT NULL,
+        name                TEXT NOT NULL,
+        category            TEXT,
+        brand               TEXT,
+        barcode             TEXT,
+        price               NUMERIC NOT NULL,
+        cost                NUMERIC DEFAULT 0,
+        stock               INTEGER DEFAULT 0,
+        low_stock_threshold INTEGER DEFAULT 5,
+        created_at          TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode
+      ON products(user_id, barcode)
+      WHERE barcode IS NOT NULL AND barcode != ''
+    `);
+
+    // ── PHARMACY ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS medicines (
+        id                  SERIAL PRIMARY KEY,
+        user_id             INTEGER NOT NULL,
+        name                TEXT NOT NULL,
+        generic_name        TEXT,
+        company             TEXT,
+        category            TEXT,
+        barcode             TEXT,
+        price               NUMERIC NOT NULL,
+        cost                NUMERIC DEFAULT 0,
+        stock               INTEGER DEFAULT 0,
+        low_stock_threshold INTEGER DEFAULT 10,
+        expiry_date         DATE,
+        created_at          TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_medicines_barcode
+      ON medicines(user_id, barcode)
+      WHERE barcode IS NOT NULL AND barcode != ''
+    `);
+
+    // ── SALES (shared: tyre_shop, general_store, pharmacy) ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS sales (
+        id             SERIAL PRIMARY KEY,
+        user_id        INTEGER NOT NULL,
+        customer_id    INTEGER,
+        customer_name  TEXT,
+        subtotal       NUMERIC NOT NULL,
+        discount       NUMERIC DEFAULT 0,
+        tax            NUMERIC DEFAULT 0,
+        total          NUMERIC NOT NULL,
+        payment_method TEXT DEFAULT 'Cash',
+        status         TEXT DEFAULT 'completed',
+        notes          TEXT,
+        created_at     TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS sale_items (
+        id           SERIAL PRIMARY KEY,
+        user_id      INTEGER NOT NULL,
+        sale_id      INTEGER NOT NULL,
+        tyre_id      INTEGER,
+        tyre_name    TEXT,
+        product_id   INTEGER,
+        product_name TEXT,
+        medicine_id  INTEGER,
+        medicine_name TEXT,
+        quantity     INTEGER NOT NULL,
+        unit_price   NUMERIC NOT NULL,
+        cost_price   NUMERIC DEFAULT 0,
+        discount     NUMERIC DEFAULT 0,
+        total        NUMERIC NOT NULL,
+        item_type    TEXT DEFAULT 'tyre'
+      )
+    `);
+
+    // ── DEFAULT ADMIN ──
+    const adminCount = await client.query('SELECT COUNT(*) as c FROM admins');
+    if (parseInt(adminCount.rows[0].c) === 0) {
+      await client.query(
+        'INSERT INTO admins (name,email,password) VALUES ($1,$2,$3)',
+        ['Super Admin', 'ahsanraza@PrimePOS.com', 'AhsanRaza@1630']
+      );
+      console.log('Default admin created');
+    }
+
+    await client.query('COMMIT');
+    console.log('PostgreSQL DB ready');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('DB init error:', e.message);
+    throw e;
+  } finally {
+    client.release();
   }
-
-  await masterDb.runAsync('ALTER TABLE users ADD COLUMN phone TEXT').catch(() => {});
-  await masterDb.runAsync('ALTER TABLE users ADD COLUMN address TEXT').catch(() => {});
-
-  console.log('Master DB ready');
 };
 
-initMaster().catch(console.error);
+initDb().catch(console.error);
 
-const TENANT_DIR = path.join(__dirname, 'tenants');
-if (!fs.existsSync(TENANT_DIR)) fs.mkdirSync(TENANT_DIR);
+const getTenantDb = (userId) => makeTenantDb(userId);
 
-const commonTables = async (db) => {
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS customers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT,
-    email TEXT, address TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS suppliers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT,
-    email TEXT, address TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS supplier_orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_id INTEGER, supplier_name TEXT,
-    total REAL DEFAULT 0, status TEXT DEFAULT 'pending', notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS supplier_order_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, item_id INTEGER,
-    item_name TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price REAL NOT NULL, total REAL NOT NULL)`);
-};
-
-const tyreShopTables = async (db) => {
-  await commonTables(db);
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS tyres (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, brand TEXT NOT NULL, model TEXT NOT NULL,
-    size TEXT NOT NULL, type TEXT DEFAULT 'Passenger', price REAL NOT NULL,
-    cost_price REAL DEFAULT 0, car_type TEXT DEFAULT '',
-    stock INTEGER DEFAULT 0, low_stock_threshold INTEGER DEFAULT 10,
-    barcode TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tyres_barcode ON tyres(barcode) WHERE barcode IS NOT NULL AND barcode != ''`).catch(() => {});
-
-  // Migrations for existing tyres table
-  await db.runAsync(`ALTER TABLE tyres ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
-  await db.runAsync(`ALTER TABLE tyres ADD COLUMN car_type TEXT DEFAULT ''`).catch(() => {});
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS spare_parts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT DEFAULT 'General',
-    brand TEXT, price REAL NOT NULL, cost_price REAL DEFAULT 0,
-    car_type TEXT DEFAULT '',
-    stock INTEGER DEFAULT 0,
-    low_stock_threshold INTEGER DEFAULT 5, barcode TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_spare_parts_barcode ON spare_parts(barcode) WHERE barcode IS NOT NULL AND barcode != ''`).catch(() => {});
-
-  // Migrations for existing spare_parts table
-  await db.runAsync(`ALTER TABLE spare_parts ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
-  await db.runAsync(`ALTER TABLE spare_parts ADD COLUMN car_type TEXT DEFAULT ''`).catch(() => {});
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS sales (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, customer_name TEXT,
-    subtotal REAL NOT NULL, discount REAL DEFAULT 0, tax REAL DEFAULT 0,
-    total REAL NOT NULL, payment_method TEXT DEFAULT 'Cash', status TEXT DEFAULT 'completed',
-    notes TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS sale_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, sale_id INTEGER NOT NULL, tyre_id INTEGER NOT NULL,
-    tyre_name TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price REAL NOT NULL,
-    cost_price REAL DEFAULT 0,
-    discount REAL DEFAULT 0, total REAL NOT NULL,
-    item_type TEXT DEFAULT 'tyre')`);
-
-  // Migration for existing sale_items table
-  await db.runAsync(`ALTER TABLE sale_items ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS suppliers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT,
-    email TEXT, address TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS supplier_orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_id INTEGER, supplier_name TEXT,
-    total REAL DEFAULT 0, status TEXT DEFAULT 'pending', notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS supplier_order_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, tyre_id INTEGER,
-    tyre_name TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price REAL NOT NULL, total REAL NOT NULL)`);
-};
-
-const restaurantTables = async (db) => {
-  await commonTables(db);
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS menu_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT,
-    size TEXT DEFAULT 'Regular', price REAL NOT NULL, cost REAL DEFAULT 0,
-    available INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  // Migrations for existing menu_items
-  await db.runAsync(`ALTER TABLE menu_items ADD COLUMN size TEXT DEFAULT 'Regular'`).catch(() => {});
-  await db.runAsync(`ALTER TABLE menu_items ADD COLUMN cost REAL DEFAULT 0`).catch(() => {});
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS tables (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, table_number TEXT NOT NULL,
-    capacity INTEGER DEFAULT 4, status TEXT DEFAULT 'available')`);
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, table_id INTEGER, customer_name TEXT,
-    subtotal REAL NOT NULL, discount REAL DEFAULT 0, tax REAL DEFAULT 0,
-    total REAL NOT NULL, payment_method TEXT DEFAULT 'Cash',
-    status TEXT DEFAULT 'completed', notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS order_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL,
-    item_id INTEGER NOT NULL, item_name TEXT NOT NULL,
-    quantity INTEGER NOT NULL, unit_price REAL NOT NULL,
-    cost_price REAL DEFAULT 0,
-    discount REAL DEFAULT 0, total REAL NOT NULL)`);
-
-  await db.runAsync(`ALTER TABLE order_items ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
-};
-
-const generalStoreTables = async (db) => {
-  await commonTables(db);
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT,
-    brand TEXT, barcode TEXT, price REAL NOT NULL, cost REAL DEFAULT 0,
-    stock INTEGER DEFAULT 0, low_stock_threshold INTEGER DEFAULT 5,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode) WHERE barcode IS NOT NULL AND barcode != ''`).catch(() => {});
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS sales (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, customer_name TEXT,
-    subtotal REAL NOT NULL, discount REAL DEFAULT 0, tax REAL DEFAULT 0,
-    total REAL NOT NULL, payment_method TEXT DEFAULT 'Cash',
-    status TEXT DEFAULT 'completed', notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS sale_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, sale_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL, product_name TEXT NOT NULL,
-    quantity INTEGER NOT NULL, unit_price REAL NOT NULL,
-    cost_price REAL DEFAULT 0,
-    discount REAL DEFAULT 0, total REAL NOT NULL,
-    item_type TEXT DEFAULT 'product')`);
-
-  await db.runAsync(`ALTER TABLE sale_items ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
-  await db.runAsync(`ALTER TABLE sale_items ADD COLUMN item_type TEXT DEFAULT 'product'`).catch(() => {});
-};
-
-const pharmacyTables = async (db) => {
-  await commonTables(db);
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS medicines (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, generic_name TEXT,
-    company TEXT, category TEXT, barcode TEXT,
-    price REAL NOT NULL, cost REAL DEFAULT 0,
-    stock INTEGER DEFAULT 0, low_stock_threshold INTEGER DEFAULT 10,
-    expiry_date DATE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_medicines_barcode ON medicines(barcode) WHERE barcode IS NOT NULL AND barcode != ''`).catch(() => {});
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS sales (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, customer_name TEXT,
-    subtotal REAL NOT NULL, discount REAL DEFAULT 0, tax REAL DEFAULT 0,
-    total REAL NOT NULL, payment_method TEXT DEFAULT 'Cash',
-    status TEXT DEFAULT 'completed', notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
-
-  await db.runAsync(`CREATE TABLE IF NOT EXISTS sale_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, sale_id INTEGER NOT NULL,
-    medicine_id INTEGER NOT NULL, medicine_name TEXT NOT NULL,
-    quantity INTEGER NOT NULL, unit_price REAL NOT NULL,
-    cost_price REAL DEFAULT 0,
-    discount REAL DEFAULT 0, total REAL NOT NULL,
-    item_type TEXT DEFAULT 'medicine')`);
-
-  await db.runAsync(`ALTER TABLE sale_items ADD COLUMN cost_price REAL DEFAULT 0`).catch(() => {});
-  await db.runAsync(`ALTER TABLE sale_items ADD COLUMN item_type TEXT DEFAULT 'medicine'`).catch(() => {});
-};
-
-const SCHEMA_MAP = {
-  tyre_shop:     tyreShopTables,
-  restaurant:    restaurantTables,
-  general_store: generalStoreTables,
-  pharmacy:      pharmacyTables,
-};
-
-const tenantDbCache = {};
-
-const getTenantDb = (userId, businessType = 'general_store') => {
-  const cached = tenantDbCache[userId];
-  if (cached && cached._businessType === businessType) return cached;
-  if (cached) {
-    try { cached.close(); } catch (_) {}
-    delete tenantDbCache[userId];
-  }
-
-  const dbPath = path.join(TENANT_DIR, `user_${userId}.db`);
-  const db = addAsync(new sqlite3.Database(dbPath));
-
-  const initFn = SCHEMA_MAP[businessType] || generalStoreTables;
-  initFn(db).catch(console.error);
-
-  db._businessType = businessType;
-  tenantDbCache[userId] = db;
-  return db;
-};
-
-module.exports = { masterDb, getTenantDb };
+module.exports = { masterDb, getTenantDb, pool };
