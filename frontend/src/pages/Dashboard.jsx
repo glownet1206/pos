@@ -43,6 +43,7 @@ export default function Dashboard({ user }) {
 
   useEffect(() => {
     setLoading(true);
+    console.log(`Fetching data for period: ${period} days`);
     Promise.allSettled([
       salesAPI.getToday(), tyresAPI.getSummary(), salesAPI.getAll(),
       reportsAPI.getWeeklyChart(period), reportsAPI.getPaymentsChart(),
@@ -52,7 +53,14 @@ export default function Dashboard({ user }) {
       if (t.status === 'fulfilled') setToday(t.value.data);
       if (i.status === 'fulfilled') setInv(i.value.data);
       if (s.status === 'fulfilled') setSales((s.value.data.sales || s.value.data || []).slice(0, 30));
-      if (w.status === 'fulfilled') setWeekly(w.value.data);
+      if (w.status === 'fulfilled') {
+        console.log(`✅ Weekly data for ${period} days received:`, w.value.data.length, 'items');
+        console.log('First 3 data points:', w.value.data.slice(0, 3));
+        console.log('Last 3 data points:', w.value.data.slice(-3));
+        setWeekly(w.value.data);
+      } else {
+        console.error(`❌ Failed to fetch weekly data for ${period} days:`, w.reason);
+      }
       if (pm.status === 'fulfilled') setPayments(pm.value.data);
       if (rep.status === 'fulfilled') setTopTyres(rep.value.data.topTyres || []);
       if (sp.status === 'fulfilled') setSpInv(sp.value.data);

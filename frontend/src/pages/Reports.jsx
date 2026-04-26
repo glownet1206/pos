@@ -413,17 +413,25 @@ export default function Reports({ user }) {
                     const bestYear = yearly.yearly[0];
                     const DarkTip = ({ active, payload, label }) => {
                       if (!active || !payload?.length) return null;
+                      const dataPoint = payload[0]?.payload || {};
+                      const displayLabel = dataPoint.year || dataPoint.date || label || dataPoint.name;
                       return (
                         <div style={{ background:'rgba(17,24,39,0.95)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:14, padding:'12px 16px', boxShadow:'0 16px 40px rgba(0,0,0,0.4)', backdropFilter:'blur(12px)' }}>
-                          <div style={{ fontSize:12, fontWeight:800, color:'rgba(255,255,255,0.5)', marginBottom:8, textTransform:'uppercase', letterSpacing:'0.8px' }}>{label}</div>
-                          {payload.map(p => (
-                            <div key={p.name} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:20, marginBottom:4 }}>
-                              <span style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, fontWeight:600, color:'rgba(255,255,255,0.6)' }}>
-                                <span style={{ width:8, height:8, borderRadius:'50%', background:p.color, display:'inline-block', boxShadow:`0 0 6px ${p.color}` }} />{p.name}
-                              </span>
-                              <span style={{ fontSize:13, fontWeight:900, color:p.color }}>{cur}{fmt(p.value)}</span>
-                            </div>
-                          ))}
+                          <div style={{ fontSize:12, fontWeight:800, color:'rgba(255,255,255,0.5)', marginBottom:8, textTransform:'uppercase', letterSpacing:'0.8px' }}>{displayLabel}</div>
+                          {payload.map((p, idx) => {
+                            let value = p.value;
+                            if (value === null || value === undefined) {
+                              value = dataPoint[p.dataKey] || dataPoint[p.name] || 0;
+                            }
+                            return (
+                              <div key={`${p.name || p.dataKey}-${idx}`} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:20, marginBottom:4 }}>
+                                <span style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, fontWeight:600, color:'rgba(255,255,255,0.6)' }}>
+                                  <span style={{ width:8, height:8, borderRadius:'50%', background:p.color, display:'inline-block', boxShadow:`0 0 6px ${p.color}` }} />{p.name}
+                                </span>
+                                <span style={{ fontSize:13, fontWeight:900, color:p.color }}>{cur}{fmt(value)}</span>
+                              </div>
+                            );
+                          })}
                         </div>
                       );
                     };
