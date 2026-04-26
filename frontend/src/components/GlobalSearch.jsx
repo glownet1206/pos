@@ -11,7 +11,8 @@ export default function GlobalSearch() {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(0);
   const inputRef = useRef(null);
-  const navigate = useNavigate();
+  const navigate = useNavigate();
+
   useEffect(() => {
     const handler = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -27,7 +28,8 @@ export default function GlobalSearch() {
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 50);
     else { setQuery(''); setResults({ tyres: [], customers: [], sales: [] }); setSelected(0); }
-  }, [open]);
+  }, [open]);
+
   useEffect(() => {
     if (!query.trim()) { setResults({ tyres: [], customers: [], sales: [] }); return; }
     const t = setTimeout(async () => {
@@ -49,7 +51,8 @@ export default function GlobalSearch() {
       setLoading(false);
     }, 280);
     return () => clearTimeout(t);
-  }, [query]);
+  }, [query]);
+
   const flat = [
     ...results.tyres.map(r => ({ type: 'tyre', data: r })),
     ...results.customers.map(r => ({ type: 'customer', data: r })),
@@ -168,7 +171,7 @@ export default function GlobalSearch() {
                         icon={<div style={{ width: 36, height: 36, borderRadius: 9, background: 'var(--orange-50)', border: '1.5px solid var(--orange-200)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><GiTyre style={{ color: 'var(--orange)', fontSize: 18 }} /></div>}
                         title={`${t.brand} ${t.model}`}
                         sub={`${t.size} · ${t.type} · ${t.stock} in stock`}
-                        right={<span style={{ fontWeight: 900, color: 'var(--orange)', fontSize: 14 }}>${t.price.toFixed(2)}</span>}
+                        right={<span style={{ fontWeight: 900, color: 'var(--orange)', fontSize: 14 }}>${Number(t.price||0).toFixed(2)}</span>}
                         badge={t.stock === 0 ? { label: 'Out', color: 'var(--red)', bg: 'var(--red-bg)' } : t.stock <= t.low_stock_threshold ? { label: 'Low', color: 'var(--orange)', bg: 'var(--orange-50)' } : null}
                       />
                     );

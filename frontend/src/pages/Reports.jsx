@@ -354,7 +354,7 @@ export default function Reports({ user }) {
                             </div>
                           </div>
                           <div style={{ textAlign:'right', flexShrink:0 }}>
-                            <div style={{ fontWeight:800, color:'var(--orange)', fontSize:13 }}>{cur}{(t.price||0).toFixed(2)}</div>
+                            <div style={{ fontWeight:800, color:'var(--orange)', fontSize:13 }}>{cur}{Number(t.price||0).toFixed(2)}</div>
                             {biz === 'restaurant'
                               ? <span className={`badge badge-${t.available==1?'success':'danger'}`} style={{ fontSize:10, marginTop:2 }}>{t.available==1?'Available':'Unavailable'}</span>
                               : <><div style={{ fontSize:11, color:'var(--gray-500)', marginTop:2 }}>Qty: {t.stock}</div>
@@ -366,9 +366,9 @@ export default function Reports({ user }) {
                     </div>
                   ) : (
                     biz === 'restaurant' ? (
-                      <div className="table-wrap"><table><thead><tr><th>Name</th><th>Category</th><th>Size</th><th>Price</th><th>Status</th></tr></thead><tbody>{paged.map(t=>(<tr key={t.id}><td style={{ fontWeight:800 }}>{t.name}</td><td>{t.category||'—'}</td><td>{t.size||'—'}</td><td style={{ color:'var(--orange)', fontWeight:700 }}>{cur}{(t.price||0).toFixed(2)}</td><td><span className={`badge badge-${t.available==1?'success':'danger'}`}>{t.available==1?'Available':'Unavailable'}</span></td></tr>))}</tbody></table></div>
+                      <div className="table-wrap"><table><thead><tr><th>Name</th><th>Category</th><th>Size</th><th>Price</th><th>Status</th></tr></thead><tbody>{paged.map(t=>(<tr key={t.id}><td style={{ fontWeight:800 }}>{t.name}</td><td>{t.category||'—'}</td><td>{t.size||'—'}</td><td style={{ color:'var(--orange)', fontWeight:700 }}>{cur}{Number(t.price||0).toFixed(2)}</td><td><span className={`badge badge-${t.available==1?'success':'danger'}`}>{t.available==1?'Available':'Unavailable'}</span></td></tr>))}</tbody></table></div>
                     ) : (
-                      <div className="table-wrap"><table><thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Value</th></tr></thead><tbody>{paged.map(t=>(<tr key={t.id}><td style={{ fontWeight:800 }}>{t.name||`${t.brand||''} ${t.model||''}`}</td><td>{t.category||t.size||'—'}</td><td style={{ color:'var(--orange)', fontWeight:700 }}>{cur}{(t.price||0).toFixed(2)}</td><td style={{ fontWeight:700 }}>{t.stock}</td><td style={{ fontWeight:600 }}>{cur}{((t.price||0)*t.stock).toFixed(2)}</td></tr>))}</tbody></table></div>
+                      <div className="table-wrap"><table><thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Value</th></tr></thead><tbody>{paged.map(t=>(<tr key={t.id}><td style={{ fontWeight:800 }}>{t.name||`${t.brand||''} ${t.model||''}`}</td><td>{t.category||t.size||'—'}</td><td style={{ color:'var(--orange)', fontWeight:700 }}>{cur}{Number(t.price||0).toFixed(2)}</td><td style={{ fontWeight:700 }}>{t.stock}</td><td style={{ fontWeight:600 }}>{cur}{(Number(t.price||0)*Number(t.stock||0)).toFixed(2)}</td></tr>))}</tbody></table></div>
                     )
                   )}
                   <Pagination page={pg} setPage={setInvPage} total={invRep.all.length} pageSize={INV_PAGE_SIZE} />
