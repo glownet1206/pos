@@ -335,7 +335,7 @@ export default function Dashboard({ user }) {
         <div className="card" style={{ display:'flex', flexDirection:'column' }}>
           <div className="card-header" style={{ marginBottom:16 }}>
             <div>
-              <span className="card-title">Top {cfg.itemsLabel}</span>
+            <span className="card-title">Top Sells</span>
               <div style={{ fontSize:11.5, color:'var(--gray-400)', fontWeight:500, marginTop:2 }}>Best sellers this month</div>
             </div>
             <span style={{ fontSize:11.5, fontWeight:700, color:cfg.color, background:cfg.color+'15', border:`1px solid ${cfg.color}30`, padding:'4px 12px', borderRadius:20 }}>30 days</span>
