@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MdSearch, MdExpandMore } from 'react-icons/md';
+import { MdExpandMore } from 'react-icons/md';
 
 const CAR_SUGGESTIONS = [
   'Toyota Corolla','Toyota Yaris','Toyota Camry','Toyota Fortuner','Toyota Hilux',
@@ -21,157 +21,127 @@ const CAR_SUGGESTIONS = [
 
 export default function CarTypeSelect({ value, onChange, suggestions = CAR_SUGGESTIONS, placeholder = 'Select car (optional)' }) {
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
   const [dropUp, setDropUp] = useState(false);
   const ref = useRef(null);
+  const inputRef = useRef(null);
 
+  // Close dropdown on outside click
   useEffect(() => {
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const filtered = search
-    ? suggestions.filter(s => s.toLowerCase().includes(search.toLowerCase()))
+  const filtered = value
+    ? suggestions.filter(s => s.toLowerCase().includes(value.toLowerCase()))
     : suggestions;
 
-  const handleOpen = () => {
-    if (!open && ref.current) {
-      const rect = ref.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      setDropUp(spaceBelow < 280);
-    }
-    setOpen(o => !o);
+  const handleInputChange = (e) => {
+    onChange(e.target.value);
+    setOpen(true);
   };
 
-  const handleSelect = (val) => { onChange(val); setSearch(''); setOpen(false); };
-  const handleClear = (e) => { e.stopPropagation(); onChange(''); setSearch(''); };
+  const handleSelect = (val) => {
+    onChange(val);
+    setOpen(false);
+    inputRef.current?.blur();
+  };
 
-  // Handle direct typing in the trigger box
-  const handleDirectInput = (e) => {
-    onChange(e.target.value);
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      setOpen(false);
+      inputRef.current?.blur();
+    }
+    if (e.key === 'Escape') {
+      setOpen(false);
+    }
+  };
+
+  const handleFocus = () => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setDropUp(window.innerHeight - rect.bottom < 260);
+    }
+    setOpen(true);
   };
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
+      {/* Input box */}
       <div style={{
         display: 'flex', alignItems: 'center',
-        borderRadius: 9,
         border: `1.5px solid ${open ? '#f97316' : 'var(--gray-200)'}`,
-        background: 'white', fontSize: 13, fontFamily: 'inherit',
-        transition: 'border-color 0.15s', minHeight: 38,
+        borderRadius: 9, background: 'white', transition: 'border-color 0.15s',
       }}>
-        {/* Editable input for manual typing */}
         <input
+          ref={inputRef}
           type="text"
           value={value || ''}
-          onChange={handleDirectInput}
-          onFocus={() => {
-            if (ref.current) {
-              const rect = ref.current.getBoundingClientRect();
-              setDropUp(window.innerHeight - rect.bottom < 280);
-            }
-            setOpen(true);
-            setSearch('');
-          }}
-          onKeyDown={e => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              setOpen(false);
-            }
-          }}
+          onChange={handleInputChange}
+          onFocus={handleFocus}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           style={{
-            flex: 1, border: 'none', outline: 'none', background: 'none',
-            padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
-            color: value ? 'var(--gray-800)' : 'var(--gray-400)',
+            flex: 1, border: 'none', outline: 'none', background: 'transparent',
+            padding: '9px 12px', fontSize: 13, fontFamily: 'inherit',
+            color: 'var(--gray-800)', borderRadius: 9,
           }}
         />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0, paddingRight: 8 }}>
-          {value && (
-            <span
-              onClick={handleClear}
-              style={{ fontSize: 13, color: 'var(--gray-400)', padding: '0 4px', lineHeight: 1, cursor: 'pointer' }}
-            >✕</span>
-          )}
+        {value ? (
+          <span
+            onMouseDown={e => { e.preventDefault(); onChange(''); setOpen(false); }}
+            style={{ padding: '0 8px', color: 'var(--gray-400)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
+          >✕</span>
+        ) : (
           <MdExpandMore
-            onClick={handleOpen}
-            style={{
-              fontSize: 18, color: 'var(--gray-400)', cursor: 'pointer',
-              transform: open ? 'rotate(180deg)' : 'none',
-              transition: 'transform 0.15s',
-            }}
+            onMouseDown={e => { e.preventDefault(); setOpen(o => !o); }}
+            style={{ marginRight: 8, color: 'var(--gray-400)', fontSize: 18, cursor: 'pointer',
+              transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}
           />
-        </div>
+        )}
       </div>
 
+      {/* Dropdown */}
       {open && (
         <div style={{
           position: 'absolute',
-          ...(dropUp
-            ? { bottom: 'calc(100% + 4px)', top: 'auto' }
-            : { top: 'calc(100% + 4px)', bottom: 'auto' }),
+          ...(dropUp ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
           left: 0, right: 0, zIndex: 9999,
-          background: 'white', borderRadius: 10, border: '1.5px solid var(--gray-200)',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.12)', overflow: 'hidden',
+          background: 'white', borderRadius: 10,
+          border: '1.5px solid var(--gray-200)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+          maxHeight: 220, overflowY: 'auto',
         }}>
-          {/* Search */}
-          <div style={{ padding: '7px 8px', borderBottom: '1px solid var(--gray-100)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--gray-50)', borderRadius: 7, padding: '5px 9px' }}>
-              <MdSearch style={{ color: 'var(--gray-400)', fontSize: 14, flexShrink: 0 }} />
-              <input
-                autoFocus
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search cars..."
-                onClick={e => e.stopPropagation()}
-                style={{ border: 'none', background: 'none', outline: 'none', fontSize: 12.5, fontFamily: 'inherit', width: '100%', color: 'var(--gray-700)' }}
-              />
-              {search && (
-                <span onClick={() => setSearch('')} style={{ cursor: 'pointer', color: 'var(--gray-400)', fontSize: 12 }}>✕</span>
-              )}
-            </div>
-          </div>
+          {/* None option */}
+          <div
+            onMouseDown={e => { e.preventDefault(); handleSelect(''); }}
+            style={{ padding: '8px 13px', fontSize: 12.5, color: 'var(--gray-400)', cursor: 'pointer', fontStyle: 'italic',
+              borderBottom: '1px solid var(--gray-100)' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--gray-50)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >None</div>
 
-          {/* List */}
-          <div style={{ maxHeight: 190, overflowY: 'auto' }}>
-            <div
-              onClick={() => handleSelect('')}
-              style={{ padding: '7px 13px', fontSize: 12.5, color: 'var(--gray-400)', cursor: 'pointer', fontStyle: 'italic' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--gray-50)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-            >
-              None
+          {filtered.length === 0 ? (
+            <div style={{ padding: '10px 13px', fontSize: 12.5, color: 'var(--gray-400)', textAlign: 'center' }}>
+              No match — press Enter to use "{value}"
             </div>
-            {/* Show custom typed value as first option if not in list */}
-            {value && !suggestions.includes(value) && (
-              <div
-                onClick={() => handleSelect(value)}
-                style={{ padding: '7px 13px', fontSize: 13, cursor: 'pointer', background: '#fff7ed', color: '#f97316', fontWeight: 700 }}
-              >
-                ✓ Use "{value}"
-              </div>
-            )}
-            {filtered.length === 0 ? (
-              <div style={{ padding: '10px 13px', fontSize: 12.5, color: 'var(--gray-400)', textAlign: 'center' }}>No results</div>
-            ) : filtered.map(s => (
-              <div
-                key={s}
-                onClick={() => handleSelect(s)}
-                style={{
-                  padding: '7px 13px', fontSize: 13, cursor: 'pointer',
-                  background: value === s ? '#fff7ed' : 'transparent',
-                  color: value === s ? '#f97316' : 'var(--gray-700)',
-                  fontWeight: value === s ? 700 : 400,
-                }}
-                onMouseEnter={e => { if (value !== s) e.currentTarget.style.background = 'var(--gray-50)'; }}
-                onMouseLeave={e => { if (value !== s) e.currentTarget.style.background = 'transparent'; }}
-              >
-                {s}
-              </div>
-            ))}
-          </div>
+          ) : filtered.map(s => (
+            <div
+              key={s}
+              onMouseDown={e => { e.preventDefault(); handleSelect(s); }}
+              style={{
+                padding: '8px 13px', fontSize: 13, cursor: 'pointer',
+                background: value === s ? '#fff7ed' : 'transparent',
+                color: value === s ? '#f97316' : 'var(--gray-700)',
+                fontWeight: value === s ? 700 : 400,
+              }}
+              onMouseEnter={e => { if (value !== s) e.currentTarget.style.background = 'var(--gray-50)'; }}
+              onMouseLeave={e => { if (value !== s) e.currentTarget.style.background = 'transparent'; }}
+            >{s}</div>
+          ))}
         </div>
       )}
     </div>
