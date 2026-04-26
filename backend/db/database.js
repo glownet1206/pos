@@ -1,8 +1,14 @@
 const { Pool } = require('pg');
 
+// Railway sets individual PG vars — use them as fallback if DATABASE_URL missing
+const connectionString = process.env.DATABASE_URL ||
+  (process.env.PGHOST ? `postgresql://${process.env.PGUSER}:${process.env.PGPASSWORD}@${process.env.PGHOST}:${process.env.PGPORT || 5432}/${process.env.PGDATABASE}` : null);
+
+console.log('DB connecting to:', connectionString ? connectionString.replace(/:([^:@]+)@/, ':***@') : 'NO URL FOUND');
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+  connectionString,
+  ssl: connectionString && !connectionString.includes('localhost') ? { rejectUnauthorized: false } : false,
 });
 
 // Helper: run query and return rows
