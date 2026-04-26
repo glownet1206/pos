@@ -21,7 +21,7 @@ app.use('/api/sales', require('./routes/sales'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/suppliers', require('./routes/suppliers'));
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok', message: 'POS Platform API running' }));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', message: 'POS Platform API running', db: 'postgresql' }));
 
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/dist', 'index.html')));
