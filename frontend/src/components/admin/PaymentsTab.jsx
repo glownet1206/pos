@@ -10,7 +10,14 @@ export default function PaymentsTab() {
   const [search,   setSearch]   = useState('');
   const [sortDir,  setSortDir]  = useState('desc');
   const [page,     setPage]     = useState(0);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const PER = 12;
+
+  useEffect(() => {
+    const h = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, []);
 
   useEffect(() => {
     adminAPI.getRecentPayments().then(r => { setPayments(r.data); setLoading(false); }).catch(() => setLoading(false));
@@ -36,16 +43,16 @@ export default function PaymentsTab() {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:14 }}>
+      <div style={{ display:'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap:14 }}>
         {statCards.map(({ label, value, sub, Icon, bg, iconBg, color, border }) => (
-          <div key={label} style={{ background:bg, border:`1px solid ${border}`, borderRadius:8, padding:'18px 20px', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
-              <div style={{ width:36, height:36, borderRadius:8, background:iconBg, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                <Icon style={{ fontSize:18, color }} />
+          <div key={label} style={{ background:bg, border:`1px solid ${border}`, borderRadius:8, padding:'16px', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+              <div style={{ width:34, height:34, borderRadius:8, background:iconBg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <Icon style={{ fontSize:17, color }} />
               </div>
-              <span style={{ fontSize:10, fontWeight:700, color, textTransform:'uppercase', letterSpacing:'0.8px' }}>{label}</span>
+              <span style={{ fontSize:9.5, fontWeight:700, color, textTransform:'uppercase', letterSpacing:'0.6px', textAlign:'right' }}>{label}</span>
             </div>
-            <div style={{ fontSize:20, fontWeight:900, color:'#1a1d23', letterSpacing:'-0.5px', marginBottom:3 }}>{value}</div>
+            <div style={{ fontSize: isMobile ? 15 : 18, fontWeight:900, color:'#1a1d23', letterSpacing:'-0.3px', marginBottom:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{value}</div>
             <div style={{ fontSize:11, color:'#9aa5b4' }}>{sub}</div>
           </div>
         ))}
@@ -53,24 +60,26 @@ export default function PaymentsTab() {
 
       <div style={{ background:'white', border:'1px solid #e8ecf0', borderRadius:8, overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
         <div style={{ padding:'12px 16px', borderBottom:'1px solid #f0f2f5', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', background:'#fafbfc' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8, flex:1, minWidth:140 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, flex:1, minWidth:120 }}>
             <MdReceiptLong style={{ fontSize:16, color:'#f97316' }} />
             <span style={{ fontWeight:700, fontSize:13, color:'#1a1d23' }}>All Payments</span>
           </div>
-          <div style={{ position:'relative', flexShrink:0 }}>
+          <div style={{ position:'relative', flexShrink:0, flex: isMobile ? '1 1 100%' : '0 0 auto' }}>
             <MdSearch style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', color:'#9aa5b4', fontSize:15, pointerEvents:'none' }} />
             <input value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="Search user, business…"
-              style={{ paddingLeft:30, paddingRight:search?28:10, paddingTop:7, paddingBottom:7, borderRadius:6, border:'1px solid #e8ecf0', fontSize:12.5, fontFamily:'inherit', outline:'none', width:200, color:'#1a1d23', background:'white' }}
+              style={{ paddingLeft:30, paddingRight:search?28:10, paddingTop:7, paddingBottom:7, borderRadius:6, border:'1px solid #e8ecf0', fontSize:12.5, fontFamily:'inherit', outline:'none', width: isMobile ? '100%' : 200, color:'#1a1d23', background:'white' }}
               onFocus={e => e.target.style.borderColor='#f97316'}
               onBlur={e => e.target.style.borderColor='#e8ecf0'} />
             {search && <MdClose onClick={() => { setSearch(''); setPage(0); }} style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', color:'#9aa5b4', fontSize:14, cursor:'pointer' }} />}
           </div>
-          <button onClick={() => setSortDir(d => d==='desc'?'asc':'desc')}
-            style={{ padding:'6px 12px', borderRadius:6, border:'1px solid #e8ecf0', background:'white', color:'#4a5568', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', gap:4 }}>
-            {sortDir==='desc' ? <><MdArrowDownward style={{ fontSize:13 }} /> Highest</> : <><MdArrowUpward style={{ fontSize:13 }} /> Lowest</>}
-          </button>
-          <div style={{ padding:'5px 10px', borderRadius:6, background:'#fff7ed', color:'#f97316', fontSize:12, fontWeight:600, display:'flex', alignItems:'center', gap:4, border:'1px solid #fed7aa' }}>
-            <MdFilterList style={{ fontSize:13 }} />{filtered.length} records
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <button onClick={() => setSortDir(d => d==='desc'?'asc':'desc')}
+              style={{ padding:'6px 12px', borderRadius:6, border:'1px solid #e8ecf0', background:'white', color:'#4a5568', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', gap:4 }}>
+              {sortDir==='desc' ? <><MdArrowDownward style={{ fontSize:13 }} /> Highest</> : <><MdArrowUpward style={{ fontSize:13 }} /> Lowest</>}
+            </button>
+            <div style={{ padding:'5px 10px', borderRadius:6, background:'#fff7ed', color:'#f97316', fontSize:12, fontWeight:600, display:'flex', alignItems:'center', gap:4, border:'1px solid #fed7aa' }}>
+              <MdFilterList style={{ fontSize:13 }} />{filtered.length} records
+            </div>
           </div>
         </div>
 
