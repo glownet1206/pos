@@ -77,7 +77,13 @@ export default function Reports({ user }) {
     const lastStr = `${calYear}-${mm}-${String(lastDay.getDate()).padStart(2,'0')}`;
     reportsAPI.getSales({ from: firstDay, to: lastStr }).then(r => {
       const map = {};
-      (r.data.daily || []).forEach(d => { map[d.date] = d; });
+      (r.data.daily || []).forEach(d => {
+        // PostgreSQL returns date as Date object or string — normalize to YYYY-MM-DD
+        const dateKey = d.date instanceof Date
+          ? d.date.toISOString().split('T')[0]
+          : String(d.date).split('T')[0];
+        map[dateKey] = { ...d, date: dateKey };
+      });
       setCalDayData({ dailyMap: map });
     });
   }, [tab, calYear, calMonth]);

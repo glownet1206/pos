@@ -78,7 +78,7 @@ router.get('/sales', async (req, res) => {
     } catch (_) {}
 
     const daily = (await pool.query(
-      `SELECT created_at::date as date, COUNT(*) as sales, SUM(total) as revenue
+      `SELECT to_char(created_at::date, 'YYYY-MM-DD') as date, COUNT(*) as sales, SUM(total) as revenue
        FROM ${salesTbl} WHERE user_id=$1 AND created_at::date BETWEEN $2 AND $3 AND status='completed'
        GROUP BY created_at::date ORDER BY date`,
       [uid, fromDate, toDate]
@@ -158,7 +158,7 @@ router.get('/chart/weekly', async (req, res) => {
     const days = parseInt(req.query.days) || 14;
 
     const rows = (await pool.query(
-      `SELECT created_at::date as date, COUNT(*) as sales, COALESCE(SUM(total),0) as revenue
+      `SELECT to_char(created_at::date, 'YYYY-MM-DD') as date, COUNT(*) as sales, COALESCE(SUM(total),0) as revenue
        FROM ${salesTbl}
        WHERE user_id=$1 AND created_at::date >= CURRENT_DATE - INTERVAL '${days - 1} days' AND status='completed'
        GROUP BY created_at::date ORDER BY date`,
@@ -169,7 +169,7 @@ router.get('/chart/weekly', async (req, res) => {
     try {
       const expr = costExpr(biz);
       costRows = (await pool.query(
-        `SELECT s.created_at::date as date, COALESCE(SUM(${expr}), 0) as cost
+        `SELECT to_char(s.created_at::date, 'YYYY-MM-DD') as date, COALESCE(SUM(${expr}), 0) as cost
          FROM ${itemsTbl} si JOIN ${salesTbl} s ON si.${itemJoinCol}=s.id
          WHERE s.user_id=$1 AND s.created_at::date >= CURRENT_DATE - INTERVAL '${days - 1} days' AND s.status='completed'
          GROUP BY s.created_at::date`,
