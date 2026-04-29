@@ -25,8 +25,8 @@ export default function ReportsTab({ stats, users }) {
 
   const bizCounts = {};
   (users||[]).forEach(u => { bizCounts[u.business_type] = (bizCounts[u.business_type]||0)+1; });
-  const totalRevenue  = payments.reduce((s,p) => s+p.amount, 0);
-  const avgPayment    = payments.length ? Math.round(totalRevenue/payments.length) : 0;
+  const totalRevenue  = payments.reduce((s,p) => s + Number(p.amount || 0), 0);
+  const avgPayment    = payments.length ? Math.round(totalRevenue / payments.length) : 0;
   const lifetimeCount = (users||[]).filter(u => u.plan==='lifetime').length;
   const monthlyCount  = (users||[]).filter(u => u.plan==='monthly').length;
   const lastTwo = revenueData.slice(-2);
@@ -37,8 +37,7 @@ export default function ReportsTab({ stats, users }) {
 
   const statCards = [
     { label:'Total Revenue', value:`Rs.${Number(totalRevenue).toLocaleString('en-PK')}`, sub:`${payments.length} payments`, bg:'#f0fdf4', iconBg:'#dcfce7', border:'#bbf7d0', color:'#22c55e' },
-    { label:'Avg Payment',   value:`Rs.${Number(avgPayment).toLocaleString('en-PK')}`,   sub:'per transaction', bg:'#eff6ff', iconBg:'#dbeafe', border:'#bfdbfe', color:'#3b82f6' },
-    { label:'Monthly Plans', value:monthlyCount, sub:`${lifetimeCount} lifetime`, bg:'#f5f3ff', iconBg:'#ede9fe', border:'#ddd6fe', color:'#8b5cf6' },
+    { label:'Avg Payment',   value:`Rs.${Number(avgPayment).toLocaleString('en-PK')}`,   sub:'per transaction', bg:'#eff6ff', iconBg:'#dbeafe', border:'#bfdbfe', color:'#3b82f6' },    { label:'Monthly Plans', value:monthlyCount, sub:`${lifetimeCount} lifetime`, bg:'#f5f3ff', iconBg:'#ede9fe', border:'#ddd6fe', color:'#8b5cf6' },
     { label:'MoM Growth', value:momGrowth!=null?`${momPos?'+':''}${momGrowth}%`:'—', sub:'vs last month', bg:momPos?'#f0fdf4':'#fef2f2', iconBg:momPos?'#dcfce7':'#fecaca', border:momPos?'#bbf7d0':'#fecaca', color:momPos?'#22c55e':'#ef4444' },
   ];
 
@@ -48,7 +47,7 @@ export default function ReportsTab({ stats, users }) {
         {statCards.map(s => (
           <div key={s.label} style={{ background:s.bg, border:`1px solid ${s.border}`, borderRadius:8, padding:'18px 20px', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>
             <div style={{ fontSize:10, fontWeight:700, color:s.color, textTransform:'uppercase', letterSpacing:'0.8px', marginBottom:8 }}>{s.label}</div>
-            <div style={{ fontSize: isMobile?18:22, fontWeight:900, color:'#1a1d23', letterSpacing:'-1px', lineHeight:1, marginBottom:5 }}>{s.value}</div>
+            <div style={{ fontSize: isMobile?16:20, fontWeight:900, color:'#1a1d23', letterSpacing:'-0.5px', lineHeight:1.2, marginBottom:5, wordBreak:'break-all', overflow:'hidden' }}>{s.value}</div>
             <div style={{ fontSize:11, color:'#9aa5b4' }}>{s.sub}</div>
           </div>
         ))}
