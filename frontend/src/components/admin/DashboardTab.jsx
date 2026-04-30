@@ -77,7 +77,7 @@ export default function DashboardTab({ stats, users }) {
                 </div>
                 <span style={{ fontSize:10, fontWeight:700, color:s.color, textTransform:'uppercase', letterSpacing:'0.8px' }}>{s.label}</span>
               </div>
-              <div style={{ fontSize: isMobile?26:32, fontWeight:900, color:'#1a1d23', letterSpacing:'-1.5px', lineHeight:1 }}>{s.value}</div>
+              <div style={{ fontSize: isMobile?22:32, fontWeight:900, color:'#1a1d23', letterSpacing:'-1.5px', lineHeight:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{s.value}</div>
             </div>
           );
         })}
