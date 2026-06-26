@@ -50,9 +50,9 @@ export default function PaymentsTab() {
               <div style={{ width:34, height:34, borderRadius:8, background:iconBg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                 <Icon style={{ fontSize:17, color }} />
               </div>
-              <span style={{ fontSize:9.5, fontWeight:700, color, textTransform:'uppercase', letterSpacing:'0.6px', textAlign:'right' }}>{label}</span>
+              <span style={{ fontSize:9, fontWeight:700, color, textTransform:'uppercase', letterSpacing:'0.5px', textAlign:'right', lineHeight:1.3 }}>{label}</span>
             </div>
-            <div style={{ fontSize: isMobile ? 15 : 18, fontWeight:900, color:'#1a1d23', letterSpacing:'-0.3px', marginBottom:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{value}</div>
+            <div style={{ fontSize: isMobile ? 14 : 17, fontWeight:900, color:'#1a1d23', letterSpacing:'-0.3px', marginBottom:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace: isMobile ? 'normal' : 'nowrap', wordBreak:'break-word', lineHeight:1.3 }}>{value}</div>
             <div style={{ fontSize:11, color:'#9aa5b4' }}>{sub}</div>
           </div>
         ))}
